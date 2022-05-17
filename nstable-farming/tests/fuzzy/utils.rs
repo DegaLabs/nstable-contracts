@@ -2,7 +2,7 @@ use near_sdk::json_types::{U128};
 use near_sdk::{Balance, AccountId};
 use near_sdk_sim::{call, deploy, view, init_simulator, to_yocto, ContractAccount, UserAccount};
 // use near_sdk_sim::transaction::ExecutionStatus;
-use nstable_exchange::{ContractContract as TestRef};
+use nstable_exchange::{ContractContract as TestnStable};
 use test_token::ContractContract as TestToken;
 use nstable_farming::{HRSimpleFarmTerms, ContractContract as Farming, FarmInfo};
 use near_sdk::serde_json::Value;
@@ -33,9 +33,9 @@ pub fn deploy_farming(root: &UserAccount, farming_id: AccountId, owner_id: Accou
     farming
 }
 
-pub fn deploy_pool(root: &UserAccount, contract_id: AccountId, owner_id: AccountId) -> ContractAccount<TestRef> {
+pub fn deploy_pool(root: &UserAccount, contract_id: AccountId, owner_id: AccountId) -> ContractAccount<TestnStable> {
     let pool = deploy!(
-        contract: TestRef,
+        contract: TestnStable,
         contract_id: contract_id,
         bytes: &EXCHANGE_WASM_BYTES,
         signer_account: root,
@@ -89,7 +89,7 @@ pub fn to_va(a: AccountId) -> ValidAccountId {
 }
 
 pub fn prepair_env(
-) -> (UserAccount, UserAccount, ContractAccount<Farming>, ContractAccount<TestRef>, Vec<Operator>) {
+) -> (UserAccount, UserAccount, ContractAccount<Farming>, ContractAccount<TestnStable>, Vec<Operator>) {
 
     let root = init_simulator(None);
 
@@ -176,7 +176,7 @@ pub fn prepair_env(
 
 pub fn add_liqudity(
     user: &UserAccount, 
-    pool: &ContractAccount<TestRef>, 
+    pool: &ContractAccount<TestnStable>, 
     token1: &ContractAccount<TestToken>, 
     token2: &ContractAccount<TestToken>, 
     pool_id: u64,

@@ -4,7 +4,7 @@ use near_sdk::{Balance};
 use near_sdk_sim::{call, to_yocto, ContractAccount, UserAccount};
 
 // use near_sdk_sim::transaction::ExecutionStatus;
-use nstable_exchange::{ContractContract as TestRef};
+use nstable_exchange::{ContractContract as TestnStable};
 use test_token::ContractContract as TestToken;
 use nstable_farming::{ContractContract as Farming};
 use nstable_farming::{HRSimpleFarmTerms};
@@ -19,7 +19,7 @@ pub(crate) fn prepair_pool_and_liquidity(
     owner: &UserAccount,
     farming_id: String,
     lps: Vec<&UserAccount>,
-) -> (ContractAccount<TestRef>, ContractAccount<TestToken>, ContractAccount<TestToken>) {
+) -> (ContractAccount<TestnStable>, ContractAccount<TestToken>, ContractAccount<TestToken>) {
     let pool = deploy_pool(&root, swap(), owner.account_id());
     let token1 = deploy_token(&root, dai(), vec![swap()]);
     let token2 = deploy_token(&root, eth(), vec![swap()]);
@@ -41,7 +41,7 @@ pub(crate) fn prepair_pool_and_liquidity(
 pub(crate) fn prepair_pool(
     root: &UserAccount, 
     owner: &UserAccount, 
-) -> (ContractAccount<TestRef>, ContractAccount<TestToken>, ContractAccount<TestToken>) {
+) -> (ContractAccount<TestnStable>, ContractAccount<TestToken>, ContractAccount<TestToken>) {
     let pool = deploy_pool(&root, swap(), owner.account_id());
     let token1 = deploy_token(&root, dai(), vec![swap()]);
     let token2 = deploy_token(&root, eth(), vec![swap()]);
@@ -167,7 +167,7 @@ pub(crate) fn prepair_multi_farms(
 
 pub(crate) fn add_liquidity(
     user: &UserAccount, 
-    pool: &ContractAccount<TestRef>, 
+    pool: &ContractAccount<TestnStable>, 
     token1: &ContractAccount<TestToken>, 
     token2: &ContractAccount<TestToken>, 
     pool_id: u64,

@@ -1,6 +1,6 @@
 use near_sdk_sim::{call, to_yocto, ContractAccount, UserAccount};
 use nstable_farming::{ContractContract as Farming, FarmInfo};
-use nstable_exchange::{ContractContract as TestRef};
+use nstable_exchange::{ContractContract as TestnStable};
 use rand_pcg::Pcg32;
 use crate::fuzzy::{
     constant::*,
@@ -8,7 +8,7 @@ use crate::fuzzy::{
     types::*,
 };
 
-pub fn do_stake(ctx: &mut FarmInfo, _rng: &mut Pcg32, root: &UserAccount, operator: &Operator, farming :&ContractAccount<Farming>, pool :&ContractAccount<TestRef>){
+pub fn do_stake(ctx: &mut FarmInfo, _rng: &mut Pcg32, root: &UserAccount, operator: &Operator, farming :&ContractAccount<Farming>, pool :&ContractAccount<TestnStable>){
     let farm_id = FARM_ID.to_string();
     let unclaim = show_unclaim(&farming, operator.user.account_id(), farm_id.clone(), false);
     println!("----->> {} staking lpt.", operator.user.account_id());

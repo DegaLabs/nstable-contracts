@@ -1,0 +1,22 @@
+{
+  "name": "nstable-contracts",
+  "version": "1.0.0",
+  "description": "This mono repo contains the source code for the smart contracts of nstable Finance on [NEAR](https://near.org).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://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@github.com/DegaLabs/nstable-contracts.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/DegaLabs/nstable-contracts/issues"
+  },
+  "homepage": "https://github.com/DegaLabs/nstable-contracts#readme",
+  "dependencies": {
+    "near-api-js": "^0.44.2"
+  }
+}

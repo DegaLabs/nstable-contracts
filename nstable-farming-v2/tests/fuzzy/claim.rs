@@ -1,6 +1,6 @@
 use near_sdk_sim::{call, to_yocto, ContractAccount, UserAccount};
 use nstable_farming_v2::{ContractContract as Farming, FarmInfo};
-use nstable_exchange::{ContractContract as TestRef};
+use nstable_exchange::{ContractContract as TestnStable};
 use rand_pcg::Pcg32;
 use crate::fuzzy::{
     constant::*,
@@ -8,7 +8,7 @@ use crate::fuzzy::{
     types::*,
 };
 
-pub fn do_claim(ctx: &mut FarmInfo, _rng: &mut Pcg32, root: &UserAccount, operator: &Operator, farming :&ContractAccount<Farming>, pool :&ContractAccount<TestRef>){
+pub fn do_claim(ctx: &mut FarmInfo, _rng: &mut Pcg32, root: &UserAccount, operator: &Operator, farming :&ContractAccount<Farming>, pool :&ContractAccount<TestnStable>){
     let farm_id = FARM_ID.to_string();
     let stake_count = match show_user_seed_amounts(&farming, operator.user.account_id(), false).get(&String::from("swap@0")){
         Some(r) => r.0,

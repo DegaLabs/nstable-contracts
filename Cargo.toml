@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "./nstable-exchange",
+    "./nst-token",
     "./test-token",
     "./nstable-farming",
     "./nstable-farming-v2"

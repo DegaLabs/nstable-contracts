@@ -4,7 +4,7 @@ use near_sdk_sim::{
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
 use nstable_farming::{ContractContract as Farming, FarmInfo};
-use nstable_exchange::{ContractContract as TestRef};
+use nstable_exchange::{ContractContract as TestnStable};
 mod fuzzy;
 use fuzzy::{
     utils::*,
@@ -20,7 +20,7 @@ pub fn get_operator<'a>(rng: &mut Pcg32, users: &'a Vec<Operator>) -> &'a Operat
     &users[user_index]
 }
 
-pub fn do_operation(ctx: &mut FarmInfo, rng: &mut Pcg32, root: &UserAccount, operator: &Operator, farming :&ContractAccount<Farming>, pool :&ContractAccount<TestRef>){
+pub fn do_operation(ctx: &mut FarmInfo, rng: &mut Pcg32, root: &UserAccount, operator: &Operator, farming :&ContractAccount<Farming>, pool :&ContractAccount<TestnStable>){
     println!("seedinfo -- {:?}", view!(farming.get_seed_info(format!("{}@0", pool.account_id()))).unwrap_json::<SeedInfo>());
     println!("farminfo -- {:?}", view!(farming.get_farm(FARM_ID.to_string())).unwrap_json::<FarmInfo>());
     match operator.preference{

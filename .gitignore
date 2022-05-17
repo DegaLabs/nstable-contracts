@@ -18,3 +18,4 @@ neardev
 res/nstable_exchange_local.wasm
 res/nstable_farming_local.wasm
 res/nstable_farming_v2_local.wasm
+node_modules/
