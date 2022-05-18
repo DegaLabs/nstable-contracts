@@ -3,6 +3,7 @@ members = [
     "./nstable-exchange",
     "./nst-token",
     "./test-token",
+    "./ve-token",
     "./nstable-farming",
     "./nstable-farming-v2"
 ]

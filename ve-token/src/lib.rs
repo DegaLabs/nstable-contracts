@@ -1,460 +1,359 @@
-use std::convert::TryInto;
-use std::fmt;
-
-use near_contract_standards::storage_management::{
-    StorageBalance, StorageBalanceBounds, StorageManagement,
+use near_contract_standards::fungible_token::metadata::{
+    FungibleTokenMetadata, FungibleTokenMetadataProvider, FT_METADATA_SPEC,
 };
+use near_contract_standards::fungible_token::FungibleToken;
+use std::convert::TryFrom;
+
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{LookupMap, UnorderedSet, Vector};
-use near_sdk::json_types::{AccountId, U128};
+use near_sdk::collections::{LazyOption, LookupMap};
+use near_sdk::json_types::{ValidAccountId, U128};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, log, near_bindgen, AccountId, Balance, BorshStorageKey, PanicOnDefault,
-    Promise, PromiseResult, StorageUsage
+    assert_one_yocto, env, ext_contract, near_bindgen, AccountId, Balance, BorshStorageKey, Gas,
+    PanicOnDefault, PromiseOrValue, PromiseResult, StorageUsage,
 };
 
-use crate::account_deposit::{Account, VAccount};
-pub use crate::action::SwapAction;
-use crate::action::{Action, ActionResult};
-use crate::admin_fee::AdminFees;
+/// Amount of gas for fungible token transfers.
+pub const GAS_FOR_FT_TRANSFER: Gas = 20_000_000_000_000;
+/// Amount of gas for reward token transfers resolve.
+pub const GAS_FOR_RESOLVE_TRANSFER: Gas = 10_000_000_000_000;
+
 use crate::errors::*;
-use crate::pool::Pool;
-use crate::stable_swap::StableSwapPool;
-use crate::utils::check_token_duplicates;
-pub use crate::views::{ContractMetadata, PoolInfo};
 
-mod account_deposit;
-mod action;
-mod admin_fee;
 mod errors;
-mod legacy;
-mod multi_fungible_token;
 mod owner;
-mod pool;
-mod simple_pool;
-mod stable_swap;
 mod storage_impl;
-mod token_receiver;
-mod utils;
 mod views;
+mod token_receiver;
 
+const MINDAYS: u64 = 7;
+const MAXDAYS: u64 = 3 * 365;
+const MAXTIME: u64 = MAXDAYS * 86400;
+const MAX_WITHDRAWAL_PENALTY: u64 = 50000; //50%
+const PRECISION: u64 = 100000; // 5 decimals
+
+#[ext_contract(ext_fungible_token)]
+pub trait FungibleTokenContract {
+    fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>);
+
+    fn ft_transfer_call(
+        &mut self,
+        receiver_id: AccountId,
+        amount: U128,
+        memo: Option<String>,
+        msg: String,
+    ) -> PromiseOrValue<U128>;
+
+    /// Returns the total supply of the token in a decimal string representation.
+    fn ft_total_supply(&self) -> U128;
+
+    /// Returns the balance of the account. If the account doesn't exist must returns `"0"`.
+    fn ft_balance_of(&self, account_id: AccountId) -> U128;
+}
+
+#[ext_contract(ext_self)]
+pub trait TokenTransferPostActions {
+    fn callback_post_withdraw(&mut self, token_id: AccountId, sender_id: AccountId, amount: U128);
+}
 
 /// Account deposits information and storage cost.
-#[derive(BorshSerialize, BorshDeserialize)]
-pub struct Account {
+#[derive(BorshDeserialize, BorshSerialize, Clone, Deserialize, Serialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct LockedBalance {
     /// Native NEAR amount sent to the exchange.
     /// Used for storage right now, but in future can be used for trading as well.
-    pub near_amount: Balance,
-    /// Amounts of various tokens deposited to this account.
-    pub legacy_tokens: HashMap<AccountId, Balance>,
-    pub tokens: UnorderedMap<AccountId, Balance>,
-    pub storage_used: StorageUsage,
+    pub amount: Balance,
+    pub end: u64,
+}
+
+impl Default for LockedBalance {
+    fn default() -> LockedBalance {
+        LockedBalance { amount: 0, end: 0 }
+    }
 }
 
 near_sdk::setup_alloc!();
 
 #[derive(BorshStorageKey, BorshSerialize)]
 pub(crate) enum StorageKey {
-    Pools,
-    Accounts,
-    Shares { pool_id: u32 },
-    Whitelist,
-    Guardian,
-    AccountTokens { account_id: AccountId },
-}
-
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Eq, PartialEq, Clone)]
-#[serde(crate = "near_sdk::serde")]
-#[cfg_attr(not(target_arch = "wasm32"), derive(Debug))]
-pub enum RunningState {
-    Running,
-    Paused,
-}
-
-impl fmt::Display for RunningState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            RunningState::Running => write!(f, "Running"),
-            RunningState::Paused => write!(f, "Paused"),
-        }
-    }
+    Locked,
+    MintedForLock,
+    MetaData,
 }
 
 #[near_bindgen]
 #[derive(BorshSerialize, BorshDeserialize, PanicOnDefault)]
 pub struct Contract {
     /// Account of the owner.
-    owner_id: AccountId,
-    /// Exchange fee, that goes to exchange itself (managed by governance).
-    exchange_fee: u32,
-    /// Referral fee, that goes to referrer in the call.
-    referral_fee: u32,
-    /// List of all the pools.
-    pools: Vector<Pool>,
-    /// Accounts registered, keeping track all the amounts deposited, storage and more.
-    accounts: LookupMap<AccountId, VAccount>,
-    /// Set of whitelisted tokens by "owner".
-    whitelisted_tokens: UnorderedSet<AccountId>,
-    /// Set of guardians.
-    guardians: UnorderedSet<AccountId>,
-    /// Running state
-    state: RunningState,
+    pub owner_id: AccountId,
+    pub lockeds: LookupMap<AccountId, LockedBalance>,
+    pub minted_for_lock: LookupMap<AccountId, Balance>,
+    pub locked_token: AccountId,
+    pub penalty_collector: AccountId,
+    pub min_locked_amount: Balance,
+    pub early_withdraw_penalty_rate: u64,
+    pub supply: Balance,
+    pub metadata: LazyOption<FungibleTokenMetadata>,
+    pub token: FungibleToken,
+    pub account_storage_usage: StorageUsage,
 }
 
 #[near_bindgen]
 impl Contract {
     #[init]
-    pub fn new(owner_id: ValidAccountId, exchange_fee: u32, referral_fee: u32) -> Self {
-        Self {
+    pub fn new(
+        owner_id: ValidAccountId,
+        locked_token: ValidAccountId,
+        penalty_collector: ValidAccountId,
+        min_locked_amount: U128,
+        early_withdraw_penalty_rate: u64,
+    ) -> Self {
+        let metadata = FungibleTokenMetadata {
+            spec: FT_METADATA_SPEC.to_string(),
+            decimals: 6,
+            icon: None,
+            name: "Voting Escrow".to_string(),
+            symbol: "VE".to_string(),
+            reference: None,
+            reference_hash: None,
+        };
+        let token = FungibleToken::new(b"t".to_vec());
+        metadata.assert_valid();
+        let mut this = Self {
             owner_id: owner_id.as_ref().clone(),
-            exchange_fee,
-            referral_fee,
-            pools: Vector::new(StorageKey::Pools),
-            accounts: LookupMap::new(StorageKey::Accounts),
-            whitelisted_tokens: UnorderedSet::new(StorageKey::Whitelist),
-            guardians: UnorderedSet::new(StorageKey::Guardian),
-            state: RunningState::Running,
-        }
+            lockeds: LookupMap::new(StorageKey::Locked),
+            minted_for_lock: LookupMap::new(StorageKey::MintedForLock),
+            locked_token: locked_token.as_ref().clone(),
+            penalty_collector: penalty_collector.as_ref().clone(),
+            min_locked_amount: min_locked_amount.into(),
+            early_withdraw_penalty_rate: early_withdraw_penalty_rate,
+            supply: 0,
+            metadata: LazyOption::new(StorageKey::MetaData, Some(&metadata)),
+            token: token,
+            account_storage_usage: 0,
+        };
+        this.measure_account_storage_usage();
+        this
     }
 
-    /// Adds new "Stable Pool" with given tokens, decimals, fee and amp.
-    /// It is limited to owner or guardians, cause a complex and correct config is needed.
-    /// tokens: pool tokens in this stable swap.
-    /// decimals: each pool tokens decimal, needed to make them comparable.
-    /// fee: total fee of the pool, admin fee is inclusive.
-    /// amp_factor: algorithm parameter, decide how stable the pool will be.
-    #[payable]
-    pub fn add_stable_swap_pool(
-        &mut self,
-        tokens: Vec<ValidAccountId>,
-        decimals: Vec<u8>,
-        fee: u32,
-        amp_factor: u64,
-    ) -> u64 {
-        assert_eq!(self.pools.len() as u32, 0, "{}", ERR104_INITIALIZED);
-        check_token_duplicates(&tokens);
-        self.internal_add_pool(Pool::StableSwapPool(StableSwapPool::new(
-            self.pools.len() as u32,
-            tokens,
-            decimals,
-            amp_factor as u128,
-            fee,
-        )))
+    fn measure_account_storage_usage(&mut self) {
+        let initial_storage_usage = env::storage_usage();
+        let tmp_account_id = "a".repeat(64).to_string();
+        self.lockeds
+            .insert(&tmp_account_id, &LockedBalance::default());
+        self.minted_for_lock.insert(&tmp_account_id, &0u128);
+        self.account_storage_usage =
+            env::storage_usage() - initial_storage_usage + self.token.account_storage_usage;
+        self.lockeds.remove(&tmp_account_id);
+        self.minted_for_lock.remove(&tmp_account_id);
     }
 
-    #[payable]
-    pub fn add_stable_token_to_pool(
+    #[private]
+    pub fn callback_post_withdraw(
         &mut self,
-        tokens: Vec<ValidAccountId>,
-        decimals: Vec<u8>,
+        token_id: AccountId,
+        account_id: AccountId,
+        amount: U128,
     ) {
-        assert_eq!(env::predecessor_account_id(), self.owner_id.clone(), "not contract owner");
-        assert_eq!(self.pools.len() as u32, 1, "{}", ERR105_POOL_NOT_INITIALIZED);
-        assert_eq!(tokens.len() as u32, decimals.len() as u32, "{}", ERR106_WRONG_INPUT_LENGTH);
-        check_token_duplicates(&tokens);
-
-        let mut pool = self.pools.get(0).expect(ERR85_NO_POOL);
-
-        for (i, decimal) in decimals.clone().into_iter().enumerate() {
-            pool.add_stable_token_to_pool(tokens[i].as_ref(), decimal);
-        }
-
-        self.pools.replace(0, &pool);
-
-    }
-
-    /// [AUDIT_03_reject(NOPE action is allowed by design)]
-    /// [AUDIT_04]
-    /// Executes generic set of actions.
-    /// If referrer provided, pays referral_fee to it.
-    /// If no attached deposit, outgoing tokens used in swaps must be whitelisted.
-    #[payable]
-    pub fn execute_actions(
-        &mut self,
-        actions: Vec<Action>,
-        referral_id: Option<ValidAccountId>,
-    ) -> ActionResult {
-        self.assert_contract_running();
-        let sender_id = env::predecessor_account_id();
-        let mut account = self.internal_unwrap_account(&sender_id);
-        // Validate that all tokens are whitelisted if no deposit (e.g. trade with access key).
-        if env::attached_deposit() == 0 {
-            for action in &actions {
-                for token in action.tokens() {
-                    assert!(
-                        account.get_balance(&token).is_some()
-                            || self.whitelisted_tokens.contains(&token),
-                        "{}",
-                        // [AUDIT_05]
-                        ERR27_DEPOSIT_NEEDED
-                    );
-                }
+        assert_eq!(token_id.clone(), self.locked_token.clone(), "invalid token");
+        assert_eq!(env::promise_results_count(), 1, "{}", "withdrawal invalid");
+        let amount: Balance = amount.into();
+        match env::promise_result(0) {
+            PromiseResult::NotReady => unreachable!(),
+            PromiseResult::Failed => {
+                env::log(
+                    format!(
+                        "{} withdraw {} seed with amount {}, Failed.",
+                        account_id, token_id, amount,
+                    )
+                    .as_bytes(),
+                );
+                // all seed amount go to lostfound
+                // let seed_amount = self.data().seeds_lostfound.get(&seed_id).unwrap_or(0);
+                // self.data_mut().seeds_lostfound.insert(&seed_id, &(seed_amount + amount));
+            }
+            PromiseResult::Successful(_) => {
+                env::log(
+                    format!(
+                        "{} withdraw {} seed with amount {}, Succeed.",
+                        account_id, token_id, amount,
+                    )
+                    .as_bytes(),
+                );
             }
         }
-        let referral_id = referral_id.map(|r| r.into());
-        let result =
-            self.internal_execute_actions(&mut account, &referral_id, &actions, ActionResult::None);
-        self.internal_save_account(&sender_id, account);
-        result
     }
 
-    /// Execute set of swap actions between pools.
-    /// If referrer provided, pays referral_fee to it.
-    /// If no attached deposit, outgoing tokens used in swaps must be whitelisted.
-    #[payable]
-    pub fn swap(&mut self, actions: Vec<SwapAction>, referral_id: Option<ValidAccountId>) -> U128 {
-        self.assert_contract_running();
-        assert_ne!(actions.len(), 0, "{}", ERR72_AT_LEAST_ONE_SWAP);
-        U128(
-            self.execute_actions(
-                actions
-                    .into_iter()
-                    .map(|swap_action| Action::Swap(swap_action))
-                    .collect(),
-                referral_id,
-            )
-            .to_amount(),
-        )
-    }
-
-    /// For stable swap pool, user can add liquidity with token's combination as his will.
-    /// But there is a little fee according to the bias of token's combination with the one in the pool.
-    /// pool_id: stable pool id. If simple pool is given, panic with unimplement.
-    /// amounts: token's combination (in pool tokens sequence) user want to add into the pool, a 0 means absent of that token.
-    /// min_shares: Slippage, if shares mint is less than it (cause of fee for too much bias), panic with  ERR68_SLIPPAGE
-    #[payable]
-    pub fn add_stable_liquidity(
-        &mut self,
-        pool_id: u64,
-        amounts: Vec<U128>,
-        min_shares: U128,
-    ) -> U128 {
-        self.assert_contract_running();
-        assert!(env::attached_deposit() > 0, "{}", ERR35_AT_LEAST_ONE_YOCTO);
-        let prev_storage = env::storage_usage();
-        let sender_id = env::predecessor_account_id();
-        let amounts: Vec<u128> = amounts.into_iter().map(|amount| amount.into()).collect();
-        let mut pool = self.pools.get(pool_id).expect(ERR85_NO_POOL);
-        // Add amounts given to liquidity first. It will return the balanced amounts.
-        let mint_shares = pool.add_stable_liquidity(
-            &sender_id,
-            &amounts,
-            min_shares.into(),
-            AdminFees::new(self.exchange_fee),
-        );
-        let mut deposits = self.internal_unwrap_or_default_account(&sender_id);
-        let tokens = pool.tokens();
-        // Subtract amounts from deposits. This will fail if there is not enough funds for any of the tokens.
-        for i in 0..tokens.len() {
-            deposits.withdraw(&tokens[i], amounts[i]);
-        }
-        self.internal_save_account(&sender_id, deposits);
-        self.pools.replace(pool_id, &pool);
-        self.internal_check_storage(prev_storage);
-
-        mint_shares.into()
-    }
-
-    pub fn tokens(&self) -> Vec<AccountId> {
-        let pool = &self.pools.get(0).expect(ERR85_NO_POOL);
-        let ts = pool.tokens();
-        ts.into()
-    }
-
-    /// Remove liquidity from the pool into general pool of liquidity.
-    #[payable]
-    pub fn remove_liquidity(
-        &mut self,
-        pool_id: u64,
-        shares: U128,
-        min_amounts: Vec<U128>,
-    ) -> Vec<U128> {
+    fn deposit_for(&mut self, receiver_id: AccountId, amount: u128) {
         assert_one_yocto();
-        self.assert_contract_running();
-        let prev_storage = env::storage_usage();
-        let sender_id = env::predecessor_account_id();
-        let mut pool = self.pools.get(pool_id).expect(ERR85_NO_POOL);
-        let amounts = pool.remove_liquidity(
-            &sender_id,
-            shares.into(),
-            min_amounts
-                .into_iter()
-                .map(|amount| amount.into())
-                .collect(),
-        );
-        self.pools.replace(pool_id, &pool);
-        let tokens = pool.tokens();
-        let mut deposits = self.internal_unwrap_or_default_account(&sender_id);
-        for i in 0..tokens.len() {
-            deposits.deposit(&tokens[i], amounts[i]);
-        }
-        // Freed up storage balance from LP tokens will be returned to near_balance.
-        if prev_storage > env::storage_usage() {
-            deposits.near_amount +=
-                (prev_storage - env::storage_usage()) as Balance * env::storage_byte_cost();
-        }
-        self.internal_save_account(&sender_id, deposits);
-
-        amounts.into_iter().map(|amount| amount.into()).collect()
+        let amount_balance: Balance = amount.into();
+        assert!(amount_balance >= self.min_locked_amount, "{}", "VE:VL0");
+        self.internal_deposit_for(receiver_id.clone(), amount_balance, 0);
     }
 
-    /// For stable swap pool, LP can use it to remove liquidity with given token amount and distribution.
-    /// pool_id: the stable swap pool id. If simple pool is given, panic with Unimplement.
-    /// amounts: Each tokens (in pool tokens sequence) amounts user want get, a 0 means user don't want to get that token back.
-    /// max_burn_shares: This is slippage protection, if user request would burn shares more than it, panic with ERR68_SLIPPAGE
-    #[payable]
-    pub fn remove_liquidity_by_tokens(
-        &mut self,
-        pool_id: u64,
-        amounts: Vec<U128>,
-        max_burn_shares: U128,
-    ) -> U128 {
+    pub fn create_lock(&mut self, value: u128, days: u64) {
         assert_one_yocto();
-        self.assert_contract_running();
-        let prev_storage = env::storage_usage();
-        let sender_id = env::predecessor_account_id();
-        let mut pool = self.pools.get(pool_id).expect(ERR85_NO_POOL);
-        let burn_shares = pool.remove_liquidity_by_tokens(
-            &sender_id,
-            amounts
-                .clone()
-                .into_iter()
-                .map(|amount| amount.into())
-                .collect(),
-            max_burn_shares.into(),
-            AdminFees::new(self.exchange_fee),
-        );
-        self.pools.replace(pool_id, &pool);
-        let tokens = pool.tokens();
-        let mut deposits = self.internal_unwrap_or_default_account(&sender_id);
-        for i in 0..tokens.len() {
-            deposits.deposit(&tokens[i], amounts[i].into());
-        }
-        // Freed up storage balance from LP tokens will be returned to near_balance.
-        if prev_storage > env::storage_usage() {
-            deposits.near_amount +=
-                (prev_storage - env::storage_usage()) as Balance * env::storage_byte_cost();
-        }
-        self.internal_save_account(&sender_id, deposits);
+        let account_id = env::predecessor_account_id();
+        assert!(value >= self.min_locked_amount, "{}", "less than min amount");
+        let locked_balance = self.get_locked_balance(account_id.clone());
+        assert!(locked_balance.amount == 0, "withdraw old tokens first");
+        assert!(days >= MINDAYS, "voting lock must be 7 days mint");
+        assert!(days <= MAXDAYS, "voting lock must be 4 years max");
+        self.internal_deposit_for(account_id, value, days)
+    }
 
-        burn_shares.into()
+    pub fn increase_unlock_time(&mut self, days: u64) {
+        assert_one_yocto();
+        let account_id = env::predecessor_account_id();
+        self.internal_increase_unlock_time(account_id, days);
+    }
+
+    fn increase_amount(&mut self, account_id: AccountId, amount: u128) {
+        assert_one_yocto();
+        assert!(amount >= self.min_locked_amount, "{}", "less than min amount");
+        self.internal_deposit_for(account_id.clone(), amount, 0);
+    }
+
+    fn increase_amount_and_unlock_time(&mut self, account_id: AccountId, amount: u128, days: u64) {
+        self.internal_increase_unlock_time(account_id.clone(), days.clone());
+        self.increase_amount(account_id.clone(), amount.clone());
+    }
+
+    fn internal_increase_unlock_time(&mut self, account_id: AccountId, days: u64) {
+        assert!(days >= MINDAYS, "voting lock must be 7 days mint");
+        assert!(days <= MAXDAYS, "voting lock must be 4 years max");
+        self.internal_deposit_for(account_id.clone(), 0, days)
+    }
+
+    pub fn withdraw(&mut self) {
+        let account_id = env::predecessor_account_id();
+        self.internal_withdraw(&account_id, false);
+    }
+
+    pub fn emergency_withdraw(&mut self) {
+        let account_id = env::predecessor_account_id();
+        self.internal_withdraw(&account_id, true);
+    }
+}
+
+near_contract_standards::impl_fungible_token_core!(Contract, token);
+
+#[near_bindgen]
+impl FungibleTokenMetadataProvider for Contract {
+    fn ft_metadata(&self) -> FungibleTokenMetadata {
+        self.metadata.get().unwrap()
     }
 }
 
 /// Internal methods implementation.
 impl Contract {
-    fn assert_contract_running(&self) {
-        match self.state {
-            RunningState::Running => (),
-            _ => env::panic(ERR51_CONTRACT_PAUSED.as_bytes()),
-        };
+    pub fn internal_register_account(&mut self, account_id: &AccountId) {
+        if self.token.accounts.insert(&account_id, &0).is_some() {
+            env::panic(b"The account is already registered");
+        }
+
+        self.lockeds.insert(&account_id, &LockedBalance::default());
+        self.minted_for_lock.insert(&account_id, &0);
     }
 
-    /// Check how much storage taken costs and refund the left over back.
-    fn internal_check_storage(&self, prev_storage: StorageUsage) {
-        let storage_cost = env::storage_usage()
-            .checked_sub(prev_storage)
-            .unwrap_or_default() as Balance
-            * env::storage_byte_cost();
-
-        let refund = env::attached_deposit().checked_sub(storage_cost).expect(
-            format!(
-                "ERR_STORAGE_DEPOSIT need {}, attatched {}",
-                storage_cost,
-                env::attached_deposit()
-            )
-            .as_str(),
-        );
-        if refund > 0 {
-            Promise::new(env::predecessor_account_id()).transfer(refund);
+    fn internal_deposit_for(&mut self, account_id: AccountId, value: Balance, days: u64) {
+        let mut locked_balance = self.get_locked_balance(account_id.clone());
+        let now = env::block_timestamp();
+        let amount = locked_balance.amount;
+        let end = locked_balance.end;
+        let mut vp: u128 = 0;
+        if amount == 0 {
+            vp = self
+                .voting_power_locked_days(U128(value.clone()), days.clone())
+                .into();
+            locked_balance.amount = value;
+            locked_balance.end = now + days * 86400;
+        } else if days == 0 {
+            vp = self
+                .voting_power_unlock_time(U128(value.clone()), end.clone())
+                .into();
+            locked_balance.amount = amount + value;
+        } else {
+            assert!(
+                value == 0,
+                "{}",
+                "Cannot increase amount and extend lock in the same time"
+            );
+            vp = self
+                .voting_power_locked_days(U128(amount.clone()), end.clone())
+                .into();
+            locked_balance.end = end + days * 86400;
+            assert!(
+                locked_balance.end - now <= MAXTIME,
+                "{}",
+                "Cannot extend lock to more than 4 years"
+            );
+        }
+        assert!(vp > 0, "{}", "No benefit to lock");
+        self.lockeds.insert(&account_id, &locked_balance);
+        self.token.internal_deposit(&account_id, vp);
+        let prev_minted = self.internal_unwrap_minted_for_lock(&account_id);
+        if let Some(new_minted) = prev_minted.checked_add(vp) {
+            self.minted_for_lock.insert(&account_id, &new_minted);
+            self.supply += value;
+        } else {
+            env::panic(b"Balance overflow");
         }
     }
 
-    /// Adds given pool to the list and returns it's id.
-    /// If there is not enough attached balance to cover storage, fails.
-    /// If too much attached - refunds it back.
-    fn internal_add_pool(&mut self, mut pool: Pool) -> u64 {
-        let prev_storage = env::storage_usage();
-        let id = self.pools.len() as u64;
-        // exchange share was registered at creation time
-        pool.share_register(&env::current_account_id());
-        self.pools.push(&pool);
-        self.internal_check_storage(prev_storage);
-        id
-    }
-
-    /// Execute sequence of actions on given account. Modifies passed account.
-    /// Returns result of the last action.
-    fn internal_execute_actions(
-        &mut self,
-        account: &mut Account,
-        referral_id: &Option<AccountId>,
-        actions: &[Action],
-        prev_result: ActionResult,
-    ) -> ActionResult {
-        let mut result = prev_result;
-        for action in actions {
-            result = self.internal_execute_action(account, referral_id, action, result);
-        }
-        result
-    }
-
-    /// Executes single action on given account. Modifies passed account. Returns a result based on type of action.
-    fn internal_execute_action(
-        &mut self,
-        account: &mut Account,
-        referral_id: &Option<AccountId>,
-        action: &Action,
-        prev_result: ActionResult,
-    ) -> ActionResult {
-        match action {
-            Action::Swap(swap_action) => {
-                let amount_in = swap_action
-                    .amount_in
-                    .map(|value| value.0)
-                    .unwrap_or_else(|| prev_result.to_amount());
-                account.withdraw(&swap_action.token_in, amount_in);
-                let amount_out = self.internal_pool_swap(
-                    swap_action.pool_id,
-                    &swap_action.token_in,
-                    amount_in,
-                    &swap_action.token_out,
-                    swap_action.min_amount_out.0,
-                    referral_id,
-                );
-                account.deposit(&swap_action.token_out, amount_out);
-                // [AUDIT_02]
-                ActionResult::Amount(U128(amount_out))
-            }
+    fn internal_unwrap_minted_for_lock(&self, account_id: &AccountId) -> Balance {
+        match self.minted_for_lock.get(account_id) {
+            Some(balance) => balance,
+            None => env::panic(format!("The account {} is not registered", &account_id).as_bytes()),
         }
     }
 
-    /// Swaps given amount_in of token_in into token_out via given pool.
-    /// Should be at least min_amount_out or swap will fail (prevents front running and other slippage issues).
-    fn internal_pool_swap(
-        &mut self,
-        pool_id: u64,
-        token_in: &AccountId,
-        amount_in: u128,
-        token_out: &AccountId,
-        min_amount_out: u128,
-        referral_id: &Option<AccountId>,
-    ) -> u128 {
-        let mut pool = self.pools.get(pool_id).expect(ERR85_NO_POOL);
-        let amount_out = pool.swap(
-            token_in,
-            amount_in,
-            token_out,
-            min_amount_out,
-            AdminFees {
-                exchange_fee: self.exchange_fee,
-                exchange_id: env::current_account_id(),
-                referral_fee: self.referral_fee,
-                referral_id: referral_id.clone(),
-            },
-        );
-        self.pools.replace(pool_id, &pool);
-        amount_out
+    fn internal_penalize(&mut self, amount: Balance) {
+        //just burn locked_token for amount
+        //self.token.internal_withdraw(account_id, amount.clone());
+    }
+
+    fn internal_withdraw(&mut self, account_id: &AccountId, emergency: bool) {
+        //just burn
+        let mut locked_balance = self.get_locked_balance(account_id.clone());
+        let now = env::block_timestamp();
+        assert!(locked_balance.amount > 0, "{}", "Nothing to withdraw");
+        if !emergency {
+            assert!(now >= locked_balance.end, "lock didnt expire yet");
+        }
+        let mut amount = locked_balance.amount;
+        if now < locked_balance.end {
+            let fee = amount * u128::try_from(self.early_withdraw_penalty_rate).unwrap_or_default()
+                / u128::try_from(PRECISION).unwrap_or_default();
+            self.internal_penalize(fee.clone()); //burn fee
+            amount -= fee;
+        }
+        locked_balance.end = 0;
+        locked_balance.amount = 0;
+
+        //burn ve
+        self.token
+            .internal_withdraw(account_id, self.internal_unwrap_minted_for_lock(account_id));
+        self.minted_for_lock.insert(account_id, &0);
+        self.supply -= amount;
+        self.lockeds.insert(account_id, &locked_balance);
+
+        ext_fungible_token::ft_transfer(
+            account_id.clone(),
+            amount.into(),
+            None,
+            &(self.locked_token),
+            1,
+            GAS_FOR_FT_TRANSFER,
+        )
+        .then(ext_self::callback_post_withdraw(
+            self.locked_token.clone(),
+            account_id.clone(),
+            amount.into(),
+            &env::current_account_id(),
+            0,
+            GAS_FOR_RESOLVE_TRANSFER,
+        ));
     }
 }
 
