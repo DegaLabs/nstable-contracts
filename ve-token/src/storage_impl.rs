@@ -57,6 +57,7 @@ impl Contract {
 impl StorageManagement for Contract {
     // `registration_only` doesn't affect the implementation for vanilla fungible token.
     #[allow(unused_variables)]
+    #[payable]
     fn storage_deposit(
         &mut self,
         account_id: Option<ValidAccountId>,

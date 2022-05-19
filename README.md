@@ -45,3 +45,8 @@ near dev-deploy
 ```
 
 This will output on the contract ID it deployed.
+
+## Current contracts on testnet
+* stable coin swap: `swap.deganstable.testnet`
+* NST token: `nst.deganstable.testnet`
+* veNST: `venst.deganstable.testnet`

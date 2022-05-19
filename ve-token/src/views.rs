@@ -71,4 +71,8 @@ impl Contract {
     pub fn get_locked_balance(&self, account_id: AccountId) -> LockedBalance {
         self.lockeds.get(&account_id).unwrap_or_default()
     }
+
+    pub fn get_minted_for_lock(&self, account_id: AccountId) -> U128 {
+        self.minted_for_lock.get(&account_id).unwrap_or_default().into()
+    }
 }
