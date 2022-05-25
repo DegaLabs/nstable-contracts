@@ -19,4 +19,5 @@ res/nstable_exchange_local.wasm
 res/nstable_farming_local.wasm
 res/nstable_farming_v2_local.wasm
 res/ve_token_local.wasm
+res/*.wasm
 node_modules/

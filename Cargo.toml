@@ -2,6 +2,8 @@
 members = [
     "./nstable-exchange",
     "./nst-token",
+    "./nai-token",
+    "./nai-vault",
     "./test-token",
     "./ve-token",
     "./nstable-farming",
