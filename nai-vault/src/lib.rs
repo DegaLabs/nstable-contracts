@@ -151,6 +151,17 @@ impl AccountDeposit {
         env::panic_str("vault not found")
     }
 
+    pub fn get_vault_or_default(&self, owner_id: AccountId, collateral_token_id: AccountId) -> Vault {
+        let length = self.vaults.len();
+        let i = self.get_vault_index(collateral_token_id.clone());
+
+        if i < length {
+            return self.vaults[i].clone();
+        }
+
+        Vault::new(&owner_id, &collateral_token_id)
+    }
+
     pub fn add_vault(&mut self, vault: &Vault) {
         self.vaults.push(vault.clone());
     }
