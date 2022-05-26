@@ -8,8 +8,17 @@ type DurationSec = u32;
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Clone, Copy)]
 #[serde(crate = "near_sdk::serde")]
 pub struct Price {
-    pub multiplier: U128,
-    pub decimals: u8,
+    pub multiplier: U128,   //price
+    pub decimals: u8,   //price decimals
+}
+
+impl Default for Price {
+    fn default() -> Price {
+        Price {
+            multiplier: U128(0),
+            decimals: 0
+        }
+    }
 }
 
 // From https://github.com/NearDeFi/price-oracle/blob/main/src/asset.rs
@@ -95,10 +104,24 @@ impl Contract {
     pub fn get_price_data(&self) -> &PriceData {
         &self.price_data
     }
-
+    #[payable]
     pub fn push_price_data(&mut self, price_data: PriceData) {
         self.assert_price_feeder();
+        let prev_storage = env::storage_usage();
         self.price_data = price_data;
+        self.price_data.assert_price_data();
+        let storage_cost = self.storage_cost(prev_storage);
+        let refund = env::attached_deposit().checked_sub(storage_cost).expect(
+            format!(
+                "ERR_STORAGE_DEPOSIT need {}, attatched {}",
+                storage_cost,
+                env::attached_deposit()
+            )
+            .as_str(),
+        );
+        if refund > 0 {
+            Promise::new(env::predecessor_account_id()).transfer(refund);
+        }
     }
 }
 
@@ -119,6 +142,15 @@ impl PriceData {
             .expect(&asset_error)
             .price
             .expect(&asset_error)
+    }
+
+    pub fn assert_price_data(&self) {
+        for price in &self.prices {
+            let p = price.price.unwrap_or_default();
+            if p.decimals > 18 || p.multiplier.0 == 0 {
+                env::panic_str("invalid price data");
+            } 
+        }
     }
 }
 

@@ -48,8 +48,8 @@ impl Contract {
         if self.accounts.contains_key(account_id) {
             let account_deposit = self.get_account_info(account_id.clone());
             Some(StorageBalance {
-                total: U128(account_deposit.near_amount),
-                available: U128(self.storage_available(account_id.clone())),
+                total: account_deposit.near_amount,
+                available: U128(self.storage_available(account_id.clone()).0),
             })
         } else {
             None
@@ -147,8 +147,8 @@ impl Contract {
         let near_deposited = deposit_account.near_amount;
 
         let mut min: Balance = 0;
-        if near_deposited < required_storage_balance {
-            min = required_storage_balance - near_deposited;
+        if near_deposited.0 < required_storage_balance {
+            min = required_storage_balance - near_deposited.0;
         }
         StorageBalanceBounds {
             min: min.into(),

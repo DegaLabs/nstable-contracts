@@ -84,6 +84,7 @@ impl Contract {
         this
     }
 
+    #[payable]
     pub fn set_minter(&mut self, account_id: AccountId, val: bool) {
         require!(env::predecessor_account_id() == self.governance_id.clone(), "only governance can change");
         let prev_storage = env::storage_usage();

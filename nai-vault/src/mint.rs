@@ -3,7 +3,7 @@ use near_sdk::{near_bindgen, Promise, PromiseResult};
 
 #[ext_contract(ext_nai_mint)]
 pub trait NaiMinter {
-    fn mint(&mut self, account: AccountId, amount: U128) -> Promise<U128>;
+    fn mint(&mut self, account_id: AccountId, amount: U128) -> Promise<U128>;
 }
 
 #[ext_contract(ext_self)]

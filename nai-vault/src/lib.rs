@@ -1,11 +1,10 @@
-#![deny(warnings)]
 mod governance;
 mod oracle;
 //mod storage;
 mod mint;
-mod views;
-mod token_receiver;
 mod storage_impl;
+mod token_receiver;
+mod views;
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::LookupMap;
@@ -91,21 +90,21 @@ impl Default for ExpectedRate {
 pub struct Vault {
     owner_id: AccountId,
     token_id: AccountId,
-    deposited: Balance,
-    borrowed: Balance,
-    last_deposit: Balance,
-    last_borrowed: Balance
+    deposited: U128,
+    borrowed: U128,
+    last_deposit: U128,
+    last_borrowed: U128,
 }
 
-impl Default for Vault {
-    fn default() -> Vault {
+impl Vault {
+    pub fn new(owner_id: &AccountId, token_id: &AccountId) -> Vault {
         Vault {
-            owner_id: AccountId::new_unchecked("".to_string()),
-            token_id: AccountId::new_unchecked("".to_string()),
-            deposited: 0,
-            borrowed: 0,
-            last_borrowed: 0,
-            last_deposit: 0
+            owner_id: owner_id.clone(),
+            token_id: token_id.clone(),
+            deposited: U128(0),
+            borrowed: U128(0),
+            last_deposit: U128(0),
+            last_borrowed: U128(0),
         }
     }
 }
@@ -114,7 +113,7 @@ impl Default for Vault {
 #[serde(crate = "near_sdk::serde")]
 pub struct AccountDeposit {
     pub vaults: Vec<Vault>,
-    pub near_amount: Balance,
+    pub near_amount: U128,
     pub storage_usage: StorageUsage,
 }
 
@@ -122,7 +121,7 @@ impl Default for AccountDeposit {
     fn default() -> AccountDeposit {
         AccountDeposit {
             vaults: vec![],
-            near_amount: 0,
+            near_amount: U128(0),
             storage_usage: 0,
         }
     }
@@ -149,7 +148,7 @@ impl AccountDeposit {
         if i < length {
             return self.vaults[i].clone();
         }
-        return Vault::default();
+        env::panic_str("vault not found")
     }
 
     pub fn add_vault(&mut self, vault: &Vault) {
@@ -162,21 +161,21 @@ impl AccountDeposit {
 pub struct TokenInfo {
     pub token_id: AccountId,
     pub collateral_ratio: u64,
-    pub total_deposit: Balance,
-    pub total_borrowed: Balance, //NAI balance
+    pub total_deposit: U128,
+    pub total_borrowed: U128, //NAI balance
     pub decimals: u8,
-    pub generated_fees: Balance,
+    pub generated_fees: U128,
 }
 
-impl Default for TokenInfo {
-    fn default() -> TokenInfo {
+impl TokenInfo {
+    pub fn new(token_id: AccountId) -> TokenInfo {
         TokenInfo {
-            token_id: AccountId::new_unchecked("".to_string()),
+            token_id: token_id,
             collateral_ratio: 0,
-            total_deposit: 0,
-            total_borrowed: 0,
+            total_deposit: U128(0),
+            total_borrowed: U128(0),
             decimals: 0,
-            generated_fees: 0,
+            generated_fees: U128(0)
         }
     }
 }
@@ -190,8 +189,8 @@ pub struct Contract {
     supported_tokens: LookupMap<AccountId, TokenInfo>,
     token_list: Vec<AccountId>,
     accounts: LookupMap<AccountId, AccountDeposit>,
-    total_nai_borrowed: Balance,
-    total_generated_fees: Balance,
+    total_nai_borrowed: U128,
+    total_generated_fees: U128,
     price_data: PriceData,
     price_feeder: AccountId,
     nai_token_id: AccountId,
@@ -203,27 +202,23 @@ pub struct Contract {
 impl Contract {
     /// Initializes the contract owned by the given `owner_id` with default metadata.
     #[init]
-    pub fn new(
-        governance: AccountId,
-        price_feeder: Option<AccountId>,
-        nai_token_id: Option<AccountId>,
-    ) -> Self {
-        let price_feeder = price_feeder.unwrap_or(AccountId::new_unchecked("".to_string()));
-        let nai_token_id = nai_token_id.unwrap_or(AccountId::new_unchecked("".to_string()));
+    pub fn new(governance: AccountId) -> Self {
+        let price_feeder = governance.clone(); //price_feeder.unwrap_or(AccountId::new_unchecked("".to_string()));
+        let nai_token_id = governance.clone(); //nai_token_id.unwrap_or(AccountId::new_unchecked("".to_string()));
         let mut this = Self {
             governance: governance.clone(),
             black_list: LookupMap::new(StorageKey::Blacklist),
             status: ContractStatus::Working,
             supported_tokens: LookupMap::new(StorageKey::SupportedTokens),
             accounts: LookupMap::new(StorageKey::Accounts),
-            total_nai_borrowed: 0,
-            total_generated_fees: 0,
+            total_nai_borrowed: U128(0),
+            total_generated_fees: U128(0),
             price_data: PriceData::default(),
             price_feeder: price_feeder,
             nai_token_id: nai_token_id,
             base_storage_usage: 0,
             storage_usage_per_vault: 0,
-            token_list: vec![]
+            token_list: vec![],
         };
         this.measure_account_storage_usage();
         this
@@ -242,10 +237,10 @@ impl Contract {
         let vault = Vault {
             owner_id: tmp_account_id.clone(),
             token_id: tmp_token_id.clone(),
-            deposited: 0,
-            borrowed: 0,
-            last_borrowed: 0,
-            last_deposit: 0
+            deposited: U128(0),
+            borrowed: U128(0),
+            last_borrowed: U128(0),
+            last_deposit: U128(0),
         };
         tmp_acc.vaults.push(vault);
         self.accounts.insert(&tmp_account_id, &tmp_acc);
@@ -255,6 +250,7 @@ impl Contract {
         self.accounts.remove(&tmp_account_id);
     }
 
+    #[payable]
     pub fn add_new_collateral_token(
         &mut self,
         token_id: AccountId,
@@ -273,9 +269,9 @@ impl Contract {
                 token_id: token_id.clone(),
                 collateral_ratio: collateral_ratio,
                 decimals: decimals,
-                total_deposit: 0,
-                total_borrowed: 0,
-                generated_fees: 0,
+                total_deposit: U128(0),
+                total_borrowed: U128(0),
+                generated_fees: U128(0),
             },
         );
         self.token_list.push(token_id.clone());
@@ -381,18 +377,22 @@ impl Contract {
         }
     }
 
-    pub fn internal_register_account(&mut self, account_id: &AccountId, amount: &Balance) -> Balance {
+    pub fn internal_register_account(
+        &mut self,
+        account_id: &AccountId,
+        amount: &Balance,
+    ) -> Balance {
         let init_storage = env::storage_usage();
         if !self.accounts.contains_key(account_id) {
             let deposit_account = AccountDeposit {
                 vaults: vec![],
-                near_amount: amount.clone(),
+                near_amount: U128(amount.clone()),
                 storage_usage: 0,
             };
             self.accounts.insert(account_id, &deposit_account);
         } else {
             let mut deposit_account = self.get_account_info(account_id.clone());
-            deposit_account.near_amount += amount;
+            deposit_account.near_amount = U128(deposit_account.near_amount.0 + amount);
             self.accounts.insert(account_id, &deposit_account);
         }
 
@@ -403,10 +403,7 @@ impl Contract {
             let token_count = self.token_list.len();
             while i < token_count {
                 let token_id = self.token_list[i].clone();
-                let mut vault = Vault::default();
-                 
-                vault.owner_id = account_id.clone();
-                vault.token_id = token_id.clone();
+                let vault = Vault::new(&account_id.clone(), &token_id.clone());
                 deposit_account.add_vault(&vault);
                 i = i + 1;
             }
@@ -415,10 +412,9 @@ impl Contract {
         let storage_used = env::storage_usage() - init_storage;
         deposit_account.storage_usage += storage_used;
         self.accounts.insert(account_id, &deposit_account);
-        
         self.assert_storage_usage(account_id);
 
-        self.storage_available(account_id.clone())
+        self.storage_available(account_id.clone()).0
     }
 
     fn deposit_to_vault(
@@ -433,28 +429,32 @@ impl Contract {
         let i = deposit_account.get_vault_index(collateral_token_id.clone());
         if i < length {
             let mut vault = deposit_account.vaults[i].clone();
-            vault.deposited += collateral_amount.clone();
-            vault.last_deposit = collateral_amount.clone();
+            vault.deposited = U128(vault.deposited.0 + collateral_amount.clone());
+            vault.last_deposit = U128(collateral_amount.clone());
             deposit_account.vaults[i] = vault;
             self.accounts.insert(&account_id, &deposit_account);
         } else {
-            let mut vault = Vault::default();
-            vault.deposited += collateral_amount.clone();
-            vault.last_deposit = collateral_amount.clone();
+            let mut vault = Vault::new(&account_id, &collateral_token_id);
+            vault.deposited = U128(vault.deposited.0 + collateral_amount.clone());
+            vault.last_deposit = U128(collateral_amount.clone());
             deposit_account.add_vault(&vault);
             self.accounts.insert(&account_id, &deposit_account);
         }
 
-        let mut token_info = self.supported_tokens.get(collateral_token_id).unwrap_or_default();
-        token_info.total_deposit += collateral_amount;
-        self.supported_tokens.insert(collateral_token_id, &token_info);
+        let mut token_info = self
+            .supported_tokens
+            .get(collateral_token_id)
+            .unwrap();
+        token_info.total_deposit = U128(token_info.total_deposit.0 + collateral_amount);
+        self.supported_tokens
+            .insert(collateral_token_id, &token_info);
     }
 
     /// Asserts there is sufficient amount of $NEAR to cover storage usage.
     pub fn assert_storage_usage(&self, account_id: &AccountId) {
         let account_deposit = self.get_account_info(account_id.clone());
         assert!(
-            self.compute_storage_usage_near(account_id.clone()) <= account_deposit.near_amount,
+            self.compute_storage_usage_near(account_id.clone()).0 <= account_deposit.near_amount.0,
             "{}",
             "insufficient near deposit"
         );
@@ -481,7 +481,6 @@ impl Contract {
 
         let prev_usage = env::storage_usage();
 
-
         //let exchange_rate = self.get_exchange_rate(collateral_token_id);
 
         //self.assert_exchange_rate(&exchange_rate, &expected);
@@ -491,16 +490,17 @@ impl Contract {
             collateral_amount.clone(),
         );
 
-        require!(borrow_amount <= borrowable, format!("cannot borrow more than {}", borrowable));
+        require!(
+            borrow_amount <= borrowable,
+            format!("cannot borrow more than {}", borrowable)
+        );
 
         borrowable = borrow_amount;
-
         self.deposit_to_vault(collateral_token_id, &collateral_amount, &account);
-
         let storage_used = env::storage_usage() - prev_usage;
         let mut account_deposit = self.get_account_info(account.clone());
         account_deposit.storage_usage += storage_used;
-        account_deposit.near_amount += near;
+        account_deposit.near_amount = U128(account_deposit.near_amount.0 + near);
         self.accounts.insert(&account, &account_deposit);
 
         self.assert_storage_usage(&account);
@@ -519,7 +519,11 @@ impl Contract {
 
     pub fn finish_borrow(
         &mut self,
-        collateral_token_id: AccountId, _collateral_amount: Balance, account_id: AccountId, borrowed: Balance, actual_received: Balance
+        collateral_token_id: AccountId,
+        _collateral_amount: Balance,
+        account_id: AccountId,
+        borrowed: Balance,
+        actual_received: Balance,
     ) -> Balance {
         if actual_received == 0 {
             //do nothing
@@ -528,18 +532,22 @@ impl Contract {
             let mut deposit_account = self.internal_unwrap_account_or_revert(&account_id);
             let mut vault = deposit_account.get_vault(collateral_token_id.clone());
             let i = deposit_account.get_vault_index(collateral_token_id.clone());
-            vault.borrowed += actual_received;
-            vault.last_borrowed = actual_received;
+            vault.borrowed = U128(vault.borrowed.0 + actual_received);
+            vault.last_borrowed = U128(actual_received);
             deposit_account.vaults[i] = vault;
             self.accounts.insert(&account_id, &deposit_account);
 
-            let mut token_info = self.supported_tokens.get(&collateral_token_id).unwrap_or_default();
-            token_info.total_borrowed += actual_received;
+            let mut token_info = self
+                .supported_tokens
+                .get(&collateral_token_id)
+                .unwrap();
+            token_info.total_borrowed = U128(token_info.total_borrowed.0 + actual_received);
             let fee = borrowed - actual_received;
-            token_info.generated_fees += fee.clone();
-            self.total_generated_fees += fee.clone();
-            self.total_nai_borrowed += actual_received;
-            self.supported_tokens.insert(&collateral_token_id, &token_info);
+            token_info.generated_fees = U128(token_info.generated_fees.0 + fee.clone());
+            self.total_generated_fees = U128(self.total_generated_fees.0 + fee.clone());
+            self.total_nai_borrowed = U128(self.total_nai_borrowed.0 + actual_received);
+            self.supported_tokens
+                .insert(&collateral_token_id, &token_info);
         }
 
         actual_received
