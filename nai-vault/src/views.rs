@@ -248,8 +248,11 @@ impl Contract {
             account_deposit.get_vault_or_default(account_id.clone(), collateral_token_id.clone());
         let new_deposit = vault.deposited.0 + collateral_amount.0;
         let new_borrow = vault.borrowed.0 + borrow_amount.0;
-
         let token_info = self.get_token_info(vault.token_id.clone());
+        if new_borrow == 0 {
+            return (100000000, token_info.collateral_ratio);
+        }
+
         let price = self.price_data.price(&vault.token_id);
         let collateral_value = U256::from(new_deposit.clone()) * U256::from(price.multiplier.0)
             / (10u128.pow(price.decimals as u32));

@@ -31,7 +31,7 @@ async function sendTransactions() {
     await account.signAndSendTransaction({
         receiverId: "wrap.testnet",
         actions: [
-            transactions.functionCall("ft_transfer_call", Buffer.from(JSON.stringify({ receiver_id: subAcc("naivaultv6"), amount: "100000000000000000000000000", msg: JSON.stringify({borrow_amount: "47000000000000000000"}) })), 100000000000000, "1")
+            transactions.functionCall("ft_transfer_call", Buffer.from(JSON.stringify({ receiver_id: subAcc("naiv2"), amount: "100000000000000000000000000", msg: JSON.stringify({borrow_amount: "200000000000000000000"}) })), 100000000000000, "1")
             //deposit only
             //transactions.functionCall("ft_transfer_call", Buffer.from(JSON.stringify({ receiver_id: subAcc("naivaultv6"), amount: "500000000", msg: ""})), 100000000000000, "1")
         ],

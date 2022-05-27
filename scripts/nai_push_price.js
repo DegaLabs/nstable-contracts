@@ -29,7 +29,7 @@ async function sendTransactions() {
     const account = await near.account(SENDER_ACCOUNT_ID);
     //console.log(JSON.stringify({days: 10, action_name: "CreateLock"}) )
     await account.signAndSendTransaction({
-        receiverId: subAcc("naivaultv6"),
+        receiverId: subAcc("nai"),
         actions: [
             transactions.functionCall("push_price_data", Buffer.from(JSON.stringify({price_data: { recency_duration_sec: 0, timestamp: "0", prices: [{asset_id: "usdc.fakes.testnet", price: { multiplier: "100000000", decimals: 8 }}, {asset_id: "wrap.testnet", price: { multiplier: "550000000", decimals: 8 }} ]}})), 100000000000000, "1")
         ],

@@ -7,26 +7,27 @@ mod utils;
 mod views;
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{ LookupMap, LazyOption };
+use near_sdk::collections::{LazyOption, LookupMap};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, near_bindgen, require, AccountId, Balance,
-    BorshStorageKey, Gas, PanicOnDefault, Promise, StorageUsage, log
+    assert_one_yocto, env, near_bindgen, require, log, AccountId, Balance, BorshStorageKey, Gas,
+    PanicOnDefault, Promise, StorageUsage,
 };
 
 use near_sdk::PromiseOrValue;
 
 use near_contract_standards::fungible_token::metadata::{
-    FungibleTokenMetadata, FT_METADATA_SPEC, FungibleTokenMetadataProvider
+    FungibleTokenMetadata, FungibleTokenMetadataProvider, FT_METADATA_SPEC,
 };
 use near_contract_standards::fungible_token::FungibleToken;
 
+use oracle::{ExchangeRate, Price, PriceData};
 use std::fmt::Debug;
-
-use oracle::{ExchangeRate, PriceData};
+use views::U256;
 
 const BORROW_FEE_DIVISOR: u128 = 10000;
+const LOW_POSITION_VALUE_NAI: u128 = 20 * (10u128.pow(18 as u32));
 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
@@ -89,6 +90,24 @@ pub struct Vault {
     borrowed: U128,
     last_deposit: U128,
     last_borrowed: U128,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Clone, Serialize, Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct Liquidation {
+    owner_id: AccountId,
+    maker_id: AccountId,
+    token_id: AccountId,
+    collateral_amount_before: U128,
+    collateral_amount_after: U128,
+    borrowed_before: U128,
+    borrowed_after: U128,
+    timestamp_sec: u64,
+    nai_burnt: U128,
+    maker_collateral_amount_received: U128,
+    treasury_collateral_amount_received: U128,
+    liquidation_price: Price, //price with liquidation fee
+    price: Price,             //price before liquidation fee
 }
 
 impl Vault {
@@ -175,6 +194,7 @@ pub struct TokenInfo {
     pub total_borrowed: U128, //NAI balance
     pub decimals: u8,
     pub generated_fees: U128,
+    pub liquidation_price_fee: u64,
 }
 
 impl TokenInfo {
@@ -186,6 +206,7 @@ impl TokenInfo {
             total_borrowed: U128(0),
             decimals: 0,
             generated_fees: U128(0),
+            liquidation_price_fee: 1000,
         }
     }
 }
@@ -209,7 +230,8 @@ pub struct Contract {
     token: FungibleToken,
     metadata: LazyOption<FungibleTokenMetadata>,
     foundation_id: AccountId,
-    borrow_fee: u128
+    borrow_fee: u128,
+    liquidation_history: Vec<Liquidation>,
 }
 
 near_contract_standards::impl_fungible_token_core!(Contract, token, on_tokens_burned);
@@ -255,7 +277,8 @@ impl Contract {
             token: FungibleToken::new(StorageKey::FungibleToken),
             metadata: LazyOption::new(StorageKey::Metadata, Some(&metadata)),
             foundation_id: foundation.clone(),
-            borrow_fee: 20
+            borrow_fee: 20,
+            liquidation_history: vec![],
         };
 
         this.token.internal_register_account(&governance);
@@ -288,9 +311,11 @@ impl Contract {
             borrow_fee = 0;
         }
         let fee_amount = amount * borrow_fee / BORROW_FEE_DIVISOR;
-        self.token.internal_deposit(&self.foundation_id, fee_amount.clone());
-        self.token.internal_deposit(&account_id, amount - fee_amount);
-        (amount - fee_amount, fee_amount) 
+        self.token
+            .internal_deposit(&self.foundation_id, fee_amount.clone());
+        self.token
+            .internal_deposit(&account_id, amount - fee_amount);
+        (amount - fee_amount, fee_amount)
     }
 
     fn measure_account_storage_usage(&mut self) {
@@ -299,7 +324,6 @@ impl Contract {
         let temp_account_deposit = AccountDeposit::default();
         self.accounts.insert(&tmp_account_id, &temp_account_deposit);
         self.base_storage_usage = env::storage_usage() - initial_storage_usage;
-        
         self.token.accounts.insert(&tmp_account_id, &0u128);
 
         initial_storage_usage = env::storage_usage();
@@ -323,7 +347,12 @@ impl Contract {
     }
 
     #[payable]
-    pub fn pay_debt(&mut self, account_id: &AccountId, collateral_token_id: &AccountId, pay_amount: U128) -> U128 {
+    pub fn pay_debt(
+        &mut self,
+        account_id: &AccountId,
+        collateral_token_id: &AccountId,
+        pay_amount: U128,
+    ) -> U128 {
         assert_one_yocto();
         let mut account_deposit = self.get_account_info(account_id.clone());
         let mut vault = account_deposit.get_vault(collateral_token_id.clone());
@@ -350,12 +379,14 @@ impl Contract {
         token_id: AccountId,
         decimals: u8,
         collateral_ratio: u64,
+        liquidation_price_fee: Option<u64>,
     ) {
         self.assert_governance();
         require!(
             !self.is_token_supported(&token_id),
             "token already supported"
         );
+        let liquidation_price_fee = liquidation_price_fee.unwrap_or(10);
         let prev_storage = env::storage_usage();
         self.supported_tokens.insert(
             &token_id,
@@ -366,6 +397,7 @@ impl Contract {
                 total_deposit: U128(0),
                 total_borrowed: U128(0),
                 generated_fees: U128(0),
+                liquidation_price_fee: liquidation_price_fee,
             },
         );
         self.token_list.push(token_id.clone());
@@ -410,9 +442,163 @@ impl Contract {
 
         let mut token_info = self.get_token_info(collateral_token_id.clone());
         token_info.total_deposit = U128(token_info.total_deposit.0 - withdraw_amount.0);
-        self.supported_tokens.insert(&collateral_token_id, &token_info);
+        self.supported_tokens
+            .insert(&collateral_token_id, &token_info);
 
         self.internal_send_tokens(&collateral_token_id, &account_id, withdraw_amount.0);
+    }
+
+    #[payable]
+    pub fn liquidate(
+        &mut self,
+        account_id: AccountId,
+        collateral_token_id: AccountId,
+        nai_amount: U128,
+    ) {
+        let prev_usage = env::storage_usage();
+        let maker_id = env::predecessor_account_id();
+
+        require!(nai_amount.0 > 0, "nai_amount > 0");
+        require!(
+            self.token.ft_balance_of(maker_id.clone()).0 >= nai_amount.0,
+            "maker insufficient balance"
+        );
+
+        //account must under collateral_ratio
+        let mut account_deposit = self.get_account_info(account_id.clone());
+        let mut vault = account_deposit.get_vault(collateral_token_id.clone());
+        let vault_index = account_deposit.get_vault_index(collateral_token_id.clone());
+
+        require!(nai_amount.0 <= vault.borrowed.0, "nai_amount > 0");
+
+        let vault_before = vault.clone();
+        require!(vault.deposited.0 > 0, "no deposited");
+
+        let (account_collateral_ratio, collateral_ratio) = self.compute_new_ratio_after_borrow(
+            account_id.clone(),
+            collateral_token_id.clone(),
+            U128(0),
+            U128(0),
+        );
+        require!(
+            account_collateral_ratio < collateral_ratio,
+            "account must be under collateral ratio"
+        );
+
+        let mut token_info = self.get_token_info(collateral_token_id.clone());
+        let price = self.price_data.price(&collateral_token_id);
+        let multiplier: u128 = price.multiplier.0
+            * (BORROW_FEE_DIVISOR - (token_info.liquidation_price_fee as u128))
+            / BORROW_FEE_DIVISOR;
+        let price_after_liquidation_price_fee = Price {
+            decimals: price.decimals,
+            multiplier: U128(multiplier),
+        };
+
+        let liquidate_value = (U256::from(nai_amount.0)
+            * U256::from(10u128.pow(token_info.decimals as u32)))
+            * U256::from(collateral_ratio)
+            / (U256::from(10u128.pow(18 as u32)) * U256::from(10000 as u64));
+        let liquidate_collateral = liquidate_value
+            * U256::from(10u128.pow(price_after_liquidation_price_fee.decimals as u32))
+            / U256::from(price_after_liquidation_price_fee.multiplier.0);
+        let mut liquidate_collateral = liquidate_collateral.as_u128();
+
+        //insufficient deposit of account for liquidation should we liquidate all?
+        //TODO: the system should reward NST token to users who provide liquidation
+        require!(
+            liquidate_collateral <= vault.deposited.0,
+            "insufficient deposit of account for liquidation"
+        );
+        vault.deposited = U128(vault.deposited.0 - liquidate_collateral.clone());
+        vault.borrowed = U128(vault.borrowed.0 - nai_amount.0);
+
+        if vault.borrowed.0 == 0 {
+            //liquidate all if the remaining deposited value <= LOW_POSITION_VALUE_NAI * collateral_ratio
+            let mut remain_collateral_value = U256::from(vault.deposited.0)
+                * U256::from(price.multiplier.0)
+                / (10u128.pow(price.decimals as u32));
+            remain_collateral_value = remain_collateral_value * U256::from(10u128.pow(18 as u32))
+                / U256::from(10u128.pow(token_info.decimals as u32));
+            require!(
+                remain_collateral_value.as_u128() <= LOW_POSITION_VALUE_NAI,
+                "remaining collateral must be  below 20$ to liquidate all"
+            );
+            liquidate_collateral = liquidate_collateral + vault.deposited.0;
+            vault.deposited = U128(0);
+        }
+        token_info.total_deposit = U128(token_info.total_deposit.0 - liquidate_collateral);
+        token_info.total_borrowed = U128(token_info.total_borrowed.0 - nai_amount.0);
+
+        self.supported_tokens
+            .insert(&collateral_token_id, &token_info);
+
+        //burn nai
+        self.token.internal_withdraw(&maker_id, nai_amount.0);
+
+        let liquidate_collateral_to_treasury = liquidate_collateral * 50 / 100;
+        let liquidate_collateral_to_maker = liquidate_collateral - liquidate_collateral_to_treasury;
+
+        //deposit to maker & foundation account
+        self.deposit_to_vault(
+            &collateral_token_id,
+            &liquidate_collateral_to_treasury,
+            &self.foundation_id.clone(),
+        );
+        self.deposit_to_vault(
+            &collateral_token_id,
+            &liquidate_collateral_to_maker,
+            &maker_id,
+        );
+
+        //save vault
+        account_deposit.vaults[vault_index] = vault.clone();
+        self.accounts.insert(&account_id, &account_deposit);
+
+        if vault.borrowed.0 > 0 {
+            //collateral ratio must less than min
+            let account_collateral_ratio = self.internal_compute_collateral_ratio(
+                &collateral_token_id,
+                vault.deposited.0,
+                vault.borrowed.0,
+            );
+
+            require!(
+                account_collateral_ratio <= collateral_ratio,
+                "invalid collateral ratio after liquidation"
+            );
+        }
+
+        let liquidaion_history = Liquidation {
+            owner_id: account_id.clone(),
+            maker_id: maker_id.clone(),
+            token_id: collateral_token_id.clone(),
+            collateral_amount_before: vault_before.deposited,
+            collateral_amount_after: vault.deposited,
+            borrowed_before: vault_before.borrowed,
+            borrowed_after: vault.borrowed,
+            timestamp_sec: env::block_timestamp_ms() / 1000,
+            nai_burnt: nai_amount,
+            maker_collateral_amount_received: U128(liquidate_collateral_to_maker),
+            treasury_collateral_amount_received: U128(liquidate_collateral_to_treasury),
+            liquidation_price: price_after_liquidation_price_fee, //price with liquidation fee
+            price: price,
+        };
+        self.liquidation_history.push(liquidaion_history);
+
+        let storage_cost = self.storage_cost(prev_usage);
+
+        let refund = env::attached_deposit().checked_sub(storage_cost).expect(
+            format!(
+                "ERR_STORAGE_DEPOSIT need {}, attatched {}",
+                storage_cost,
+                env::attached_deposit()
+            )
+            .as_str(),
+        );
+        if refund > 0 {
+            Promise::new(env::predecessor_account_id()).transfer(refund);
+        }
     }
 
     pub fn destroy_black_funds(&mut self, _account_id: &AccountId) {
@@ -584,6 +770,25 @@ impl Contract {
         );
     }
 
+    /// Asserts there is sufficient amount of $NEAR to cover storage usage.
+    pub fn assert_collateral_ratio_valid(
+        &self,
+        account_id: &AccountId,
+        collateral_token_id: &AccountId,
+    ) {
+        let (new_ratio, min_ratio) = self.compute_new_ratio_after_borrow(
+            account_id.clone(),
+            collateral_token_id.clone(),
+            U128(0),
+            U128(0),
+        );
+        assert!(
+            min_ratio <= new_ratio,
+            "{}",
+            "collateral ratio after borrow too low"
+        );
+    }
+
     pub fn borrow(
         &mut self,
         collateral_token_id: &AccountId,
@@ -604,10 +809,12 @@ impl Contract {
         let near = env::attached_deposit();
         let prev_usage = env::storage_usage();
 
-        let mut borrowable = self.internal_compute_max_borrowable_amount(
+        let borrowable = self.compute_max_borrowable_for_account(
+            account.clone(),
             collateral_token_id.clone(),
-            collateral_amount.clone(),
+            U128(collateral_amount),
         );
+        let mut borrowable = borrowable.0;
 
         require!(
             borrow_amount <= borrowable,
@@ -635,11 +842,16 @@ impl Contract {
         account_deposit.near_amount = U128(account_deposit.near_amount.0 + near);
         self.accounts.insert(&account, &account_deposit);
 
-        self.assert_storage_usage(&account);
-
         let (actual_received, _) = self.internal_mint(account.clone(), borrowable.clone());
 
-        self.finish_borrow(collateral_token_id.clone(), account.clone(), borrowable, actual_received);
+        self.finish_borrow(
+            collateral_token_id.clone(),
+            account.clone(),
+            borrowable,
+            actual_received,
+        );
+        self.assert_storage_usage(&account);
+        self.assert_collateral_ratio_valid(&account, &collateral_token_id);
     }
 
     pub fn finish_borrow(
