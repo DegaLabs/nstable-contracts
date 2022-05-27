@@ -19,10 +19,6 @@ impl Contract {
         self.governance = governance;
     }
 
-    pub fn set_nai_token_id(&mut self, nai: AccountId) {
-        self.nai_token_id = nai;
-    }
-
     pub fn governance_id(&self) -> AccountId {
         self.governance.clone()
     }

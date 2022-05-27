@@ -1,6 +1,6 @@
+use crate::oracle::Price;
 use crate::*;
 use near_sdk::{near_bindgen, AccountId};
-use crate::oracle::Price;
 uint::construct_uint!(
     pub struct U256(4);
 );
@@ -119,10 +119,13 @@ impl Contract {
             let price = self.price_data.price(&vault.token_id);
             let collateral_value = U256::from(vault.deposited.0) * U256::from(price.multiplier.0)
                 / (10u128.pow(price.decimals as u32));
-            let current_collateral_ratio =
-                collateral_value * U256::from(10u128.pow(18 as u32)) * U256::from(10000 as u64)
-                    / (U256::from(vault.borrowed.0)
-                        * U256::from(10u128.pow(token_info.decimals as u32)));
+            let mut current_collateral_ratio = U256::from(0);
+            if vault.borrowed.0 > 0 {
+                current_collateral_ratio =
+                    collateral_value * U256::from(10u128.pow(18 as u32)) * U256::from(10000 as u64)
+                        / (U256::from(vault.borrowed.0)
+                            * U256::from(10u128.pow(token_info.decimals as u32)));
+            }
             let b = BorrowInfo {
                 owner_id: account_id.clone(),
                 token_id: vault.token_id.clone(),
@@ -181,6 +184,11 @@ impl Contract {
         let account_deposit = self.get_account_info(account_id.clone());
         let vault =
             account_deposit.get_vault_or_default(account_id.clone(), collateral_token_id.clone());
+
+        if vault.borrowed.0 == 0 {
+            return vault.deposited;
+        }
+
         let price = self.price_data.price(&collateral_token_id);
         let token_info = self.get_token_info(collateral_token_id.clone());
         let min_collateral_ratio = token_info.collateral_ratio * 100;
@@ -192,13 +200,19 @@ impl Contract {
         let required_deposited = required_collateral_value
             * U256::from(10u128.pow(price.decimals as u32))
             / U256::from(price.multiplier.0);
-        if required_deposited.as_u128() < vault.deposited.0 * 99/100 {
+        if required_deposited.as_u128() < vault.deposited.0 * 99 / 100 {
             return U128(vault.deposited.0 - required_deposited.as_u128());
         }
         U128(0)
     }
 
-    pub fn compute_liquidation_price(&self, account_id: AccountId, collateral_token_id: AccountId, collateral_amount: Option<U128>, borrow_amount: Option<U128>) -> Price {
+    pub fn compute_liquidation_price(
+        &self,
+        account_id: AccountId,
+        collateral_token_id: AccountId,
+        collateral_amount: Option<U128>,
+        borrow_amount: Option<U128>,
+    ) -> Price {
         let price = self.price_data.price(&collateral_token_id);
         let token_info = self.get_token_info(collateral_token_id.clone());
         let collateral_amount = collateral_amount.unwrap_or(U128(0));
@@ -207,16 +221,18 @@ impl Contract {
         let account_deposit = self.get_account_info(account_id.clone());
         let vault =
             account_deposit.get_vault_or_default(account_id.clone(), collateral_token_id.clone());
-        
         let total_deposit = collateral_amount.0 + vault.deposited.0;
         let total_borrow = borrow_amount.0 + vault.borrowed.0;
         let total_borrow_value = U256::from(total_borrow);
         let min_required_collateral_value = total_borrow_value * token_info.collateral_ratio / 100;
 
-        let liquidation_price = min_required_collateral_value * U256::from(10u128.pow(price.decimals as u32)) * U256::from(10u128.pow(token_info.decimals as u32)) / (U256::from(total_deposit) * U256::from(10u128.pow(18 as u32)));
+        let liquidation_price = min_required_collateral_value
+            * U256::from(10u128.pow(price.decimals as u32))
+            * U256::from(10u128.pow(token_info.decimals as u32))
+            / (U256::from(total_deposit) * U256::from(10u128.pow(18 as u32)));
         Price {
             multiplier: U128(liquidation_price.as_u128()),
-            decimals: price.decimals
+            decimals: price.decimals,
         }
     }
 

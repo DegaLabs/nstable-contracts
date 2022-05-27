@@ -1,35 +1,40 @@
 mod governance;
 mod oracle;
 //mod storage;
-mod mint;
 mod storage_impl;
 mod token_receiver;
-mod views;
 mod utils;
+mod views;
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::LookupMap;
+use near_sdk::collections::{ LookupMap, LazyOption };
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, ext_contract, near_bindgen, require, AccountId, Balance,
-    BorshStorageKey, Gas, PanicOnDefault, Promise, StorageUsage,
+    assert_one_yocto, env, near_bindgen, require, AccountId, Balance,
+    BorshStorageKey, Gas, PanicOnDefault, Promise, StorageUsage, log
 };
 
-use mint::ext_self;
+use near_sdk::PromiseOrValue;
+
+use near_contract_standards::fungible_token::metadata::{
+    FungibleTokenMetadata, FT_METADATA_SPEC, FungibleTokenMetadataProvider
+};
+use near_contract_standards::fungible_token::FungibleToken;
+
 use std::fmt::Debug;
 
 use oracle::{ExchangeRate, PriceData};
 
-const NO_DEPOSIT: Balance = 0;
-const GAS_FOR_MINT: Gas = Gas(5_000_000_000_000);
-const GAS_FOR_MINT_CALLBACK: Gas = Gas(20_000_000_000_000);
+const BORROW_FEE_DIVISOR: u128 = 10000;
 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
     Blacklist,
     SupportedTokens,
     Accounts,
+    FungibleToken,
+    Metadata,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -141,7 +146,11 @@ impl AccountDeposit {
         env::panic_str("vault not found")
     }
 
-    pub fn get_vault_or_default(&self, owner_id: AccountId, collateral_token_id: AccountId) -> Vault {
+    pub fn get_vault_or_default(
+        &self,
+        owner_id: AccountId,
+        collateral_token_id: AccountId,
+    ) -> Vault {
         let length = self.vaults.len();
         let i = self.get_vault_index(collateral_token_id.clone());
 
@@ -176,7 +185,7 @@ impl TokenInfo {
             total_deposit: U128(0),
             total_borrowed: U128(0),
             decimals: 0,
-            generated_fees: U128(0)
+            generated_fees: U128(0),
         }
     }
 }
@@ -194,17 +203,42 @@ pub struct Contract {
     total_generated_fees: U128,
     price_data: PriceData,
     price_feeder: AccountId,
-    nai_token_id: AccountId,
     base_storage_usage: StorageUsage,
     storage_usage_per_vault: StorageUsage,
+
+    token: FungibleToken,
+    metadata: LazyOption<FungibleTokenMetadata>,
+    foundation_id: AccountId,
+    borrow_fee: u128
+}
+
+near_contract_standards::impl_fungible_token_core!(Contract, token, on_tokens_burned);
+
+#[near_bindgen]
+impl FungibleTokenMetadataProvider for Contract {
+    fn ft_metadata(&self) -> FungibleTokenMetadata {
+        self.metadata.get().unwrap()
+    }
 }
 
 #[near_bindgen]
 impl Contract {
     #[init]
-    pub fn new(governance: AccountId) -> Self {
+    pub fn new(governance: AccountId, foundation: AccountId) -> Self {
         let price_feeder = governance.clone(); //price_feeder.unwrap_or(AccountId::new_unchecked("".to_string()));
-        let nai_token_id = governance.clone(); //nai_token_id.unwrap_or(AccountId::new_unchecked("".to_string()));
+
+        let metadata = FungibleTokenMetadata {
+            spec: FT_METADATA_SPEC.to_string(),
+            name: "nStable Stable Coint".to_string(),
+            symbol: "NAI".to_string(),
+            icon: None,
+            reference: None,
+            reference_hash: None,
+            decimals: 18,
+        };
+        require!(!env::state_exists(), "Already initialized");
+        metadata.assert_valid();
+
         let mut this = Self {
             governance: governance.clone(),
             black_list: LookupMap::new(StorageKey::Blacklist),
@@ -215,13 +249,48 @@ impl Contract {
             total_generated_fees: U128(0),
             price_data: PriceData::default(),
             price_feeder: price_feeder,
-            nai_token_id: nai_token_id,
             base_storage_usage: 0,
             storage_usage_per_vault: 0,
             token_list: vec![],
+            token: FungibleToken::new(StorageKey::FungibleToken),
+            metadata: LazyOption::new(StorageKey::Metadata, Some(&metadata)),
+            foundation_id: foundation.clone(),
+            borrow_fee: 20
         };
+
+        this.token.internal_register_account(&governance);
+        if governance != foundation {
+            this.token.internal_register_account(&foundation);
+        }
+        this.token.internal_deposit(&governance, 0);
+        this.token.internal_deposit(&foundation, 0);
+
         this.measure_account_storage_usage();
         this
+    }
+
+    // fn on_account_closed(&mut self, account_id: AccountId, balance: Balance) {
+    //     log!("Closed @{} with {}", account_id, balance);
+    // }
+
+    fn on_tokens_burned(&mut self, account_id: AccountId, amount: Balance) {
+        log!("Account @{} burned {}", account_id, amount);
+    }
+
+    pub fn set_foundation_id(&mut self, account_id: AccountId) {
+        self.assert_governance();
+        self.foundation_id = account_id;
+    }
+
+    fn internal_mint(&mut self, account_id: AccountId, amount: Balance) -> (Balance, Balance) {
+        let mut borrow_fee = self.borrow_fee.clone();
+        if account_id == self.governance || account_id == self.foundation_id {
+            borrow_fee = 0;
+        }
+        let fee_amount = amount * borrow_fee / BORROW_FEE_DIVISOR;
+        self.token.internal_deposit(&self.foundation_id, fee_amount.clone());
+        self.token.internal_deposit(&account_id, amount - fee_amount);
+        (amount - fee_amount, fee_amount) 
     }
 
     fn measure_account_storage_usage(&mut self) {
@@ -230,6 +299,8 @@ impl Contract {
         let temp_account_deposit = AccountDeposit::default();
         self.accounts.insert(&tmp_account_id, &temp_account_deposit);
         self.base_storage_usage = env::storage_usage() - initial_storage_usage;
+        
+        self.token.accounts.insert(&tmp_account_id, &0u128);
 
         initial_storage_usage = env::storage_usage();
         let mut tmp_acc = self.accounts.get(&tmp_account_id).unwrap();
@@ -247,7 +318,30 @@ impl Contract {
 
         self.storage_usage_per_vault = env::storage_usage() - initial_storage_usage;
 
+        self.token.accounts.remove(&tmp_account_id);
         self.accounts.remove(&tmp_account_id);
+    }
+
+    #[payable]
+    pub fn pay_debt(&mut self, account_id: &AccountId, collateral_token_id: &AccountId, pay_amount: U128) -> U128 {
+        assert_one_yocto();
+        let mut account_deposit = self.get_account_info(account_id.clone());
+        let mut vault = account_deposit.get_vault(collateral_token_id.clone());
+        let vault_index = account_deposit.get_vault_index(collateral_token_id.clone());
+        let mut burn = pay_amount.0;
+        if pay_amount.0 > vault.borrowed.0 {
+            vault.borrowed = U128(0);
+            burn = vault.borrowed.0;
+        } else {
+            vault.borrowed = U128(vault.borrowed.0 - pay_amount.0);
+        }
+
+        account_deposit.vaults[vault_index] = vault;
+        self.accounts.insert(&account_id, &account_deposit);
+
+        //burn NAI
+        self.token.internal_withdraw(account_id, burn);
+        U128(burn)
     }
 
     #[payable]
@@ -296,9 +390,14 @@ impl Contract {
     #[payable]
     pub fn withdraw_collateral(&mut self, collateral_token_id: AccountId, withdraw_amount: U128) {
         assert_one_yocto();
+        require!(withdraw_amount.0 > 0, "withdraw_amount > 0");
         let account_id = env::predecessor_account_id();
-        let max_withdrawal = self.compute_max_withdrawal(account_id.clone(), collateral_token_id.clone());
-        require!(max_withdrawal.0 >= withdraw_amount.0, "withdraw exeed allowance");
+        let max_withdrawal =
+            self.compute_max_withdrawal(account_id.clone(), collateral_token_id.clone());
+        require!(
+            max_withdrawal.0 >= withdraw_amount.0,
+            "withdraw exeed allowance"
+        );
 
         let mut account_deposit = self.get_account_info(account_id.clone());
         let mut vault = account_deposit.get_vault(collateral_token_id.clone());
@@ -308,6 +407,10 @@ impl Contract {
         account_deposit.vaults[vault_index] = vault;
 
         self.accounts.insert(&account_id, &account_deposit);
+
+        let mut token_info = self.get_token_info(collateral_token_id.clone());
+        token_info.total_deposit = U128(token_info.total_deposit.0 - withdraw_amount.0);
+        self.supported_tokens.insert(&collateral_token_id, &token_info);
 
         self.internal_send_tokens(&collateral_token_id, &account_id, withdraw_amount.0);
     }
@@ -402,6 +505,11 @@ impl Contract {
         amount: &Balance,
     ) -> Balance {
         let init_storage = env::storage_usage();
+
+        if !self.token.accounts.contains_key(account_id) {
+            self.token.accounts.insert(account_id, &0u128);
+        }
+
         if !self.accounts.contains_key(account_id) {
             let deposit_account = AccountDeposit {
                 vaults: vec![],
@@ -460,10 +568,7 @@ impl Contract {
             self.accounts.insert(&account_id, &deposit_account);
         }
 
-        let mut token_info = self
-            .supported_tokens
-            .get(collateral_token_id)
-            .unwrap();
+        let mut token_info = self.supported_tokens.get(collateral_token_id).unwrap();
         token_info.total_deposit = U128(token_info.total_deposit.0 + collateral_amount);
         self.supported_tokens
             .insert(collateral_token_id, &token_info);
@@ -516,7 +621,10 @@ impl Contract {
             let min_borrow = self.get_min_borrow();
             let account_deposit = self.get_account_info(account.clone());
             let vault = account_deposit.get_vault(collateral_token_id.clone());
-            require!(min_borrow.0 <= vault.borrowed.0 + borrowable, "borrow too little");
+            require!(
+                min_borrow.0 <= vault.borrowed.0 + borrowable,
+                "borrow too little"
+            );
         }
 
         let storage_used = env::storage_usage() - prev_usage;
@@ -529,22 +637,14 @@ impl Contract {
 
         self.assert_storage_usage(&account);
 
-        self.call_mint(account.clone(), borrowable.clone())
-            .then(ext_self::mint_callback(
-                collateral_token_id.clone(),
-                collateral_amount.clone(),
-                account.clone(),
-                borrowable.clone(),
-                env::current_account_id(),
-                NO_DEPOSIT,
-                GAS_FOR_MINT_CALLBACK,
-            ));
+        let (actual_received, _) = self.internal_mint(account.clone(), borrowable.clone());
+
+        self.finish_borrow(collateral_token_id.clone(), account.clone(), borrowable, actual_received);
     }
 
     pub fn finish_borrow(
         &mut self,
         collateral_token_id: AccountId,
-        _collateral_amount: Balance,
         account_id: AccountId,
         borrowed: Balance,
         actual_received: Balance,
@@ -561,10 +661,7 @@ impl Contract {
             deposit_account.vaults[i] = vault;
             self.accounts.insert(&account_id, &deposit_account);
 
-            let mut token_info = self
-                .supported_tokens
-                .get(&collateral_token_id)
-                .unwrap();
+            let mut token_info = self.supported_tokens.get(&collateral_token_id).unwrap();
             token_info.total_borrowed = U128(token_info.total_borrowed.0 + borrowed);
             let fee = borrowed - actual_received;
             token_info.generated_fees = U128(token_info.generated_fees.0 + fee.clone());

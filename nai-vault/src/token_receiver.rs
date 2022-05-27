@@ -1,4 +1,3 @@
-
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{serde_json, PromiseOrValue};
@@ -32,6 +31,7 @@ impl FungibleTokenReceiver for Contract {
         self.abort_if_pause();
         self.abort_if_blacklisted(sender_id.clone());
         let token_in = env::predecessor_account_id();
+
         self.abort_if_unsupported_token(token_in.clone());
         if msg.is_empty() {
             // Simple deposit.
