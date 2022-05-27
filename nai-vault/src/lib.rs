@@ -24,17 +24,6 @@ const NO_DEPOSIT: Balance = 0;
 const GAS_FOR_MINT: Gas = Gas(5_000_000_000_000);
 const GAS_FOR_MINT_CALLBACK: Gas = Gas(20_000_000_000_000);
 
-//const USN_DECIMALS: u8 = 18;
-//const GAS_FOR_BUY_PROMISE: Gas = Gas(10_000_000_000_000);
-//const GAS_FOR_SELL_PROMISE: Gas = Gas(15_000_000_000_000);
-//const GAS_FOR_RETURN_VALUE_PROMISE: Gas = Gas(5_000_000_000_000);
-
-//const MAX_SPREAD: Balance = 50_000; // 0.05 = 5%
-//const SPREAD_DECIMAL: u8 = 6;
-//const SPREAD_MAX_SCALER: f64 = 0.4;
-
-//const COLLATERAL_RATIO_DIVISOR: u64 = 10000;
-
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
     Blacklist,
@@ -211,7 +200,6 @@ pub struct Contract {
 
 #[near_bindgen]
 impl Contract {
-    /// Initializes the contract owned by the given `owner_id` with default metadata.
     #[init]
     pub fn new(governance: AccountId) -> Self {
         let price_feeder = governance.clone(); //price_feeder.unwrap_or(AccountId::new_unchecked("".to_string()));
@@ -302,6 +290,14 @@ impl Contract {
         if refund > 0 {
             Promise::new(env::predecessor_account_id()).transfer(refund);
         }
+    }
+
+    pub fn withdraw_collateral(&mut self, collateral_token_id: AccountId, withdraw_amount: U128) {
+        let account_id = env::predecessor_account_id();
+        let max_withdrawal = self.compute_max_withdrawal(account_id.clone(), collateral_token_id.clone());
+        require!(max_withdrawal.0 >= withdraw_amount.0, "withdraw exeed allowance");
+
+
     }
 
     pub fn destroy_black_funds(&mut self, _account_id: &AccountId) {
@@ -489,12 +485,7 @@ impl Contract {
         );
 
         let near = env::attached_deposit();
-
         let prev_usage = env::storage_usage();
-
-        //let exchange_rate = self.get_exchange_rate(collateral_token_id);
-
-        //self.assert_exchange_rate(&exchange_rate, &expected);
 
         let mut borrowable = self.internal_compute_max_borrowable_amount(
             collateral_token_id.clone(),
@@ -564,31 +555,6 @@ impl Contract {
         actual_received
     }
 
-    /// Sells USN tokens getting NEAR tokens.
-    /// Return amount of purchased NEAR tokens.
-    // pub fn liquidate(&mut self, amount: U128, expected: Option<ExpectedRate>) -> Promise {
-    //     // assert_one_yocto();
-    //     // self.abort_if_pause();
-    //     // self.abort_if_blacklisted();
-
-    //     // let amount = Balance::from(amount);
-
-    //     // if amount == 0 {
-    //     //     env::panic_str("Not allowed to sell 0 tokens");
-    //     // }
-
-    //     // let account = env::predecessor_account_id();
-
-    //     // Oracle::get_exchange_rate_promise().then(ext_self::sell_with_price_callback(
-    //     //     account,
-    //     //     amount.into(),
-    //     //     expected,
-    //     //     env::current_account_id(),
-    //     //     NO_DEPOSIT,
-    //     //     GAS_FOR_SELL_PROMISE,
-    //     // ))
-    // }
-
     fn _finish_liquidate(
         &mut self,
         _account: AccountId,
@@ -597,39 +563,6 @@ impl Contract {
         _rate: ExchangeRate,
     ) -> Balance {
         0
-        // if let Some(expected) = expected {
-        //     Self::assert_exchange_rate(&rate, &expected);
-        // }
-
-        // let mut sell_amount = U256::from(amount);
-
-        // if account != self.owner_id {
-        //     // Commission.
-        //     let spread_denominator = 10u128.pow(SPREAD_DECIMAL as u32);
-        //     let commission_usn =
-        //         U256::from(amount) * U256::from(self.spread_u128(amount)) / spread_denominator;
-        //     let commission_near = commission_usn
-        //         * U256::from(10u128.pow(u32::from(rate.decimals() - USN_DECIMALS)))
-        //         / rate.multiplier();
-        //     self.commission.usn += commission_usn.as_u128();
-        //     self.commission.near += commission_near.as_u128();
-
-        //     sell_amount -= commission_usn;
-        // }
-
-        // // Make exchange: USN -> NEAR.
-        // let deposit = sell_amount
-        //     * U256::from(10u128.pow(u32::from(rate.decimals() - USN_DECIMALS)))
-        //     / rate.multiplier();
-
-        // // Here we don't expect too big deposit. Otherwise, panic.
-        // let deposit = deposit.as_u128();
-
-        // self.token.internal_withdraw(&account, amount);
-
-        // event::emit::ft_burn(&account, amount, None);
-
-        // deposit
     }
 }
 

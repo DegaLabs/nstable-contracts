@@ -1,0 +1,41 @@
+{
+  "tokens": [
+    "btc",
+    "eth",
+    "bnb",
+    "ada",
+    "etc",
+    "xrp",
+    "doge",
+    "dot",
+    "uni",
+    "sol",
+    "bch",
+    "ltc",
+    "link",
+    "matic",
+    "near",
+    "usdc"
+  ],
+  "nearMap": {
+    "testnet": {
+      "near": "wrap.testnet",
+      "btc": "wbtc.fakes.testnet",
+      "eth": "eth.fakes.testnet",
+      "usdc": "usdc.fakes.testnet"
+    },
+    "mainnet": {
+
+    }
+  },
+  "exchanges": [
+    "binance",
+    "coinbase",
+    "bitfinex",
+    "okex",
+    "ftx",
+    "huobi"
+  ],
+  "feed_period": 300,
+  "network": "testnet"
+}

@@ -154,23 +154,3 @@ impl PriceData {
     }
 }
 
-#[cfg(test)]
-impl ExchangeRate {
-    // pub fn test_fresh_rate() -> Self {
-    //     Self {
-    //         multiplier: 111439,
-    //         decimals: 28,
-    //         timestamp: env::block_timestamp(),
-    //         recency_duration: env::block_timestamp() + 1000000000,
-    //     }
-    // }
-
-    // pub fn test_old_rate() -> Self {
-    //     Self {
-    //         multiplier: 111439,
-    //         decimals: 28,
-    //         timestamp: env::block_timestamp(),
-    //         recency_duration: env::block_timestamp(),
-    //     }
-    // }
-}
