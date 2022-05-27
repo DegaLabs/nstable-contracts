@@ -499,8 +499,18 @@ impl Contract {
 
         borrowable = borrow_amount;
         self.deposit_to_vault(collateral_token_id, &collateral_amount, &account);
+        //assert_min_borrow
+        {
+            let min_borrow = self.get_min_borrow();
+            let account_deposit = self.get_account_info(account.clone());
+            let vault = account_deposit.get_vault(collateral_token_id.clone());
+            require!(min_borrow.0 <= vault.borrowed.0 + borrowable, "borrow too little");
+        }
+
         let storage_used = env::storage_usage() - prev_usage;
+
         let mut account_deposit = self.get_account_info(account.clone());
+
         account_deposit.storage_usage += storage_used;
         account_deposit.near_amount = U128(account_deposit.near_amount.0 + near);
         self.accounts.insert(&account, &account_deposit);

@@ -243,6 +243,10 @@ impl Contract {
             / (U256::from(new_borrow.clone()) * U256::from(10u128.pow(token_info.decimals as u32)));
         (new_collateral_ratio.as_u64(), token_info.collateral_ratio)
     }
+
+    pub fn get_min_borrow(&self) -> U128 {
+        return U128(100 * 10u128.pow(18));
+    }
 }
 
 impl Contract {
