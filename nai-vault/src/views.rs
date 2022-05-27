@@ -1,6 +1,6 @@
 use crate::*;
 use near_sdk::{near_bindgen, AccountId};
-
+use crate::oracle::Price;
 uint::construct_uint!(
     pub struct U256(4);
 );
@@ -196,6 +196,28 @@ impl Contract {
             return U128(vault.deposited.0 - required_deposited.as_u128());
         }
         U128(0)
+    }
+
+    pub fn compute_liquidation_price(&self, account_id: AccountId, collateral_token_id: AccountId, collateral_amount: Option<U128>, borrow_amount: Option<U128>) -> Price {
+        let price = self.price_data.price(&collateral_token_id);
+        let token_info = self.get_token_info(collateral_token_id.clone());
+        let collateral_amount = collateral_amount.unwrap_or(U128(0));
+        let borrow_amount = borrow_amount.unwrap_or(U128(0));
+
+        let account_deposit = self.get_account_info(account_id.clone());
+        let vault =
+            account_deposit.get_vault_or_default(account_id.clone(), collateral_token_id.clone());
+        
+        let total_deposit = collateral_amount.0 + vault.deposited.0;
+        let total_borrow = borrow_amount.0 + vault.borrowed.0;
+        let total_borrow_value = U256::from(total_borrow);
+        let min_required_collateral_value = total_borrow_value * token_info.collateral_ratio / 100;
+
+        let liquidation_price = min_required_collateral_value * U256::from(10u128.pow(price.decimals as u32)) * U256::from(10u128.pow(token_info.decimals as u32)) / (U256::from(total_deposit) * U256::from(10u128.pow(18 as u32)));
+        Price {
+            multiplier: U128(liquidation_price.as_u128()),
+            decimals: price.decimals
+        }
     }
 
     pub fn compute_new_ratio_after_borrow(
