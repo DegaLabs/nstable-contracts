@@ -192,7 +192,7 @@ impl Contract {
         let required_deposited = required_collateral_value
             * U256::from(10u128.pow(price.decimals as u32))
             / U256::from(price.multiplier.0);
-        if required_deposited.as_u128() < vault.deposited.0 {
+        if required_deposited.as_u128() < vault.deposited.0 * 99/100 {
             return U128(vault.deposited.0 - required_deposited.as_u128());
         }
         U128(0)

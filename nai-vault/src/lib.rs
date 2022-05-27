@@ -5,6 +5,7 @@ mod mint;
 mod storage_impl;
 mod token_receiver;
 mod views;
+mod utils;
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::LookupMap;
@@ -292,12 +293,23 @@ impl Contract {
         }
     }
 
+    #[payable]
     pub fn withdraw_collateral(&mut self, collateral_token_id: AccountId, withdraw_amount: U128) {
+        assert_one_yocto();
         let account_id = env::predecessor_account_id();
         let max_withdrawal = self.compute_max_withdrawal(account_id.clone(), collateral_token_id.clone());
         require!(max_withdrawal.0 >= withdraw_amount.0, "withdraw exeed allowance");
 
+        let mut account_deposit = self.get_account_info(account_id.clone());
+        let mut vault = account_deposit.get_vault(collateral_token_id.clone());
+        let vault_index = account_deposit.get_vault_index(collateral_token_id.clone());
+        require!(vault.deposited.0 >= withdraw_amount.0, "invalid deposit");
+        vault.deposited = U128(vault.deposited.0 - withdraw_amount.0);
+        account_deposit.vaults[vault_index] = vault;
 
+        self.accounts.insert(&account_id, &account_deposit);
+
+        self.internal_send_tokens(&collateral_token_id, &account_id, withdraw_amount.0);
     }
 
     pub fn destroy_black_funds(&mut self, _account_id: &AccountId) {
@@ -544,8 +556,8 @@ impl Contract {
             let mut deposit_account = self.internal_unwrap_account_or_revert(&account_id);
             let mut vault = deposit_account.get_vault(collateral_token_id.clone());
             let i = deposit_account.get_vault_index(collateral_token_id.clone());
-            vault.borrowed = U128(vault.borrowed.0 + actual_received);
-            vault.last_borrowed = U128(actual_received);
+            vault.borrowed = U128(vault.borrowed.0 + borrowed);
+            vault.last_borrowed = U128(borrowed);
             deposit_account.vaults[i] = vault;
             self.accounts.insert(&account_id, &deposit_account);
 
@@ -553,11 +565,11 @@ impl Contract {
                 .supported_tokens
                 .get(&collateral_token_id)
                 .unwrap();
-            token_info.total_borrowed = U128(token_info.total_borrowed.0 + actual_received);
+            token_info.total_borrowed = U128(token_info.total_borrowed.0 + borrowed);
             let fee = borrowed - actual_received;
             token_info.generated_fees = U128(token_info.generated_fees.0 + fee.clone());
             self.total_generated_fees = U128(self.total_generated_fees.0 + fee.clone());
-            self.total_nai_borrowed = U128(self.total_nai_borrowed.0 + actual_received);
+            self.total_nai_borrowed = U128(self.total_nai_borrowed.0 + borrowed);
             self.supported_tokens
                 .insert(&collateral_token_id, &token_info);
         }
