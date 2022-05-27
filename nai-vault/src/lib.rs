@@ -347,16 +347,19 @@ impl Contract {
     }
 
     #[payable]
-    pub fn pay_debt(
+    pub fn pay_loan(
         &mut self,
         account_id: &AccountId,
         collateral_token_id: &AccountId,
         pay_amount: U128,
     ) -> U128 {
         assert_one_yocto();
+        //cant pay loan if collateral ratio is under min. users need to deposit more to get ratio go above min ratio
+        self.assert_collateral_ratio_valid(account_id, collateral_token_id);
         let mut account_deposit = self.get_account_info(account_id.clone());
         let mut vault = account_deposit.get_vault(collateral_token_id.clone());
         let vault_index = account_deposit.get_vault_index(collateral_token_id.clone());
+        let mut token_info = self.get_token_info(collateral_token_id.clone());
         let mut burn = pay_amount.0;
         if pay_amount.0 > vault.borrowed.0 {
             vault.borrowed = U128(0);
@@ -364,7 +367,9 @@ impl Contract {
         } else {
             vault.borrowed = U128(vault.borrowed.0 - pay_amount.0);
         }
-
+        token_info.total_borrowed = U128(token_info.total_borrowed.0 - burn);
+        self.supported_tokens.insert(collateral_token_id, &token_info);
+        self.total_nai_borrowed = U128(self.total_nai_borrowed.0 - burn);
         account_deposit.vaults[vault_index] = vault;
         self.accounts.insert(&account_id, &account_deposit);
 
@@ -533,6 +538,7 @@ impl Contract {
         self.supported_tokens
             .insert(&collateral_token_id, &token_info);
 
+        self.total_nai_borrowed = U128(self.total_nai_borrowed.0 - nai_amount.0);
         //burn nai
         self.token.internal_withdraw(&maker_id, nai_amount.0);
 
@@ -884,16 +890,6 @@ impl Contract {
         }
 
         actual_received
-    }
-
-    fn _finish_liquidate(
-        &mut self,
-        _account: AccountId,
-        _amount: Balance,
-        _expected: Option<ExpectedRate>,
-        _rate: ExchangeRate,
-    ) -> Balance {
-        0
     }
 }
 
