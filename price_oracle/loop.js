@@ -5,7 +5,7 @@ sleep = async (time) => new Promise((resolve) => setTimeout(resolve, time))
 now = () => {
     return Math.floor(Date.now() / 1000)
 }
-let vaultContractID = "naivaultv6.deganstable.testnet"
+let vaultContractID = "nai.deganstable.testnet"
 let config = require('config')
 let dataValidPeriod = 300 //300 seconds
 async function main() {
