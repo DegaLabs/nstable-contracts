@@ -1,23 +1,23 @@
 [workspace]
 members = [
-    "./nstable-exchange",
-    "./nst-token",
-    "./nai-token",
-    "./nai-vault",
-    "./test-token",
-    "./ve-token",
-    "./nstable-farming",
-    "./nstable-farming-v2",
-    "./staking"
+  "./nstable-exchange",
+  "./nst-token",
+  "./nai-token",
+  "./nai-vault",
+  "./test-token",
+  "./ve-token",
+  "./nstable-farming",
+  "./nstable-farming-v2",
+  "./staking",
+  "./npad",
 ]
-
 
 [profile.release]
 codegen-units = 1
 # s = optimize for binary size ("z" would additionally turn off loop vectorization)
 opt-level = "z"
 # link time optimization
-lto = true
 debug = false
-panic = "abort"
+lto = true
 overflow-checks = true
+panic = "abort"
