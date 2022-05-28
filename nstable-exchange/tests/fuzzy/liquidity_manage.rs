@@ -176,7 +176,7 @@ pub fn do_stable_add_liquidity(token_contracts: &Vec<ContractAccount<TestToken>>
 
     let min_shares = rng.gen_range(1..ADD_LIQUIDITY_LIMIT) as u128;
 
-    let old_share = mft_balance_of(pool, ":0", &operator.user.account_id());
+    let old_share = ft_balance_of(pool, ":0", &operator.user.account_id());
 
     println!("do_stable_add_liquidity add_amounts : {:?}", add_amounts);
     for (idx, amount) in add_amounts.clone().into_iter().enumerate() {
@@ -201,7 +201,7 @@ pub fn do_stable_add_liquidity(token_contracts: &Vec<ContractAccount<TestToken>>
         StableScenario::Normal => {
             share = out_come.unwrap_json::<U128>().0;
             assert_eq!(cal_share, share);
-            assert_eq!(mft_balance_of(pool, ":0", &operator.user.account_id()), old_share + share);
+            assert_eq!(ft_balance_of(pool, ":0", &operator.user.account_id()), old_share + share);
         },
         StableScenario::Slippage => {
             assert_eq!(get_error_count(&out_come), 1);
@@ -219,19 +219,19 @@ pub fn do_stable_remove_liquidity_by_shares(token_contracts: &Vec<ContractAccoun
     let min_amounts = vec![U128(1*ONE_DAI), U128(1*ONE_USDT), U128(1*ONE_USDC)];
     let remove_lp_num = rng.gen_range(1..LP_LIMIT) * ONE_LPT * 10;
 
-    let mut user_lpt =  mft_balance_of(&pool, ":0", &operator.user.account_id());
+    let mut user_lpt =  ft_balance_of(&pool, ":0", &operator.user.account_id());
 
     while user_lpt == 0 {
         user_lpt = do_stable_add_liquidity(token_contracts, rng, root, operator, pool);
     }
 
     let old_balances = view!(pool.get_deposits(operator.user.valid_account_id())).unwrap_json::<HashMap<AccountId, U128>>();
-    let old_share = mft_balance_of(pool, ":0", &operator.user.account_id());
+    let old_share = ft_balance_of(pool, ":0", &operator.user.account_id());
 
     if user_lpt < remove_lp_num {
         scenario = StableScenario::InsufficientLpShares;
     }else{
-        let total_supply = mft_total_supply(pool, ":0");
+        let total_supply = ft_total_supply(pool, ":0");
         let mut result = vec![0u128; STABLE_TOKENS.len()];
         let amounts  = view!(pool.get_pool(0)).unwrap_json::<PoolInfo>().amounts;
         for i in 0..STABLE_TOKENS.len() {
@@ -265,7 +265,7 @@ pub fn do_stable_remove_liquidity_by_shares(token_contracts: &Vec<ContractAccoun
     match scenario {
         StableScenario::Normal => {
             out_come.assert_success();
-            let user_share = mft_balance_of(pool, ":0", &operator.user.account_id());
+            let user_share = ft_balance_of(pool, ":0", &operator.user.account_id());
             let balances = view!(pool.get_deposits(operator.user.valid_account_id())).unwrap_json::<HashMap<AccountId, U128>>();
             assert_eq!(user_share, old_share - remove_lp_num);
             for (idx, item) in increase_amounts.iter().enumerate() {
@@ -293,7 +293,7 @@ pub fn do_stable_remove_liquidity_by_token(token_contracts: &Vec<ContractAccount
                                         U128(rng.gen_range(1..REMOVE_LIQUIDITY_LIMIT as u128) * ONE_USDT),
                                         U128(rng.gen_range(1..REMOVE_LIQUIDITY_LIMIT as u128) * ONE_USDC)];
     let max_burn_shares = rng.gen_range(1..LP_LIMIT as u128) * ONE_LPT;
-    let mut user_lpt =  mft_balance_of(&pool, ":0", &operator.user.account_id());
+    let mut user_lpt =  ft_balance_of(&pool, ":0", &operator.user.account_id());
 
     while user_lpt == 0 {
         user_lpt = do_stable_add_liquidity(token_contracts, rng, root, operator, pool);
@@ -322,7 +322,7 @@ pub fn do_stable_remove_liquidity_by_token(token_contracts: &Vec<ContractAccount
     match scenario {
         StableScenario::Normal => {
             out_come.assert_success();
-            let current_share = mft_balance_of(&pool, ":0", &operator.user.account_id());
+            let current_share = ft_balance_of(&pool, ":0", &operator.user.account_id());
             assert_eq!(current_share, user_lpt - remove_lpt);
             let balances = view!(pool.get_deposits(operator.user.valid_account_id())).unwrap_json::<HashMap<AccountId, U128>>();
             for (idx, item) in remove_amounts.iter().enumerate() {

@@ -183,21 +183,21 @@ pub fn get_storage_state(
     }
 }
 
-pub fn mft_balance_of(
+pub fn ft_balance_of(
     pool: &ContractAccount<Exchange>,
     token_or_pool: &str,
     account_id: &AccountId,
 ) -> u128 {
-    view!(pool.mft_balance_of(token_or_pool.to_string(), to_va(account_id.clone())))
+    view!(pool.ft_balance_of(token_or_pool.to_string(), to_va(account_id.clone())))
         .unwrap_json::<U128>()
         .0
 }
 
-pub fn mft_total_supply(
+pub fn ft_total_supply(
     pool: &ContractAccount<Exchange>,
     token_or_pool: &str,
 ) -> u128 {
-    view!(pool.mft_total_supply(token_or_pool.to_string()))
+    view!(pool.ft_total_supply(token_or_pool.to_string()))
         .unwrap_json::<U128>()
         .0
 }

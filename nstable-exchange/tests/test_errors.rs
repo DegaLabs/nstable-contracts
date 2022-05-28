@@ -300,7 +300,7 @@ fn sim_stable_e13 () {
 
     let outcome = call!(
         user,
-        ex.mft_transfer(":0".to_string(), root.valid_account_id(), U128(1), None),
+        ex.ft_transfer(":0".to_string(), root.valid_account_id(), U128(1), None),
         deposit = 1
     );
     assert_failure(outcome, "E13: LP not registered");
@@ -333,7 +333,7 @@ fn sim_stable_e34 () {
     .assert_success();
 
     let lp_shares = view!(
-        ex.mft_balance_of(":0".to_string(), root.valid_account_id())
+        ex.ft_balance_of(":0".to_string(), root.valid_account_id())
     ).unwrap_json::<U128>();
     let lp_shares = lp_shares.0;
 
@@ -346,7 +346,7 @@ fn sim_stable_e34 () {
 
     call!(
         owner,
-        ex.mft_register(":0".to_string(), owner.valid_account_id()),
+        ex.ft_register(":0".to_string(), owner.valid_account_id()),
         deposit = to_yocto("1")
     )
     .assert_success();
@@ -354,7 +354,7 @@ fn sim_stable_e34 () {
     // transfer all lp token to others
     call!(
         root,
-        ex.mft_transfer(":0".to_string(), owner.valid_account_id(), U128(lp_shares), None),
+        ex.ft_transfer(":0".to_string(), owner.valid_account_id(), U128(lp_shares), None),
         deposit = 1
     )
     .assert_success();
@@ -368,7 +368,7 @@ fn sim_stable_e34 () {
 
     let outcome = call!(
         root,
-        ex.mft_transfer(":0".to_string(), owner.valid_account_id(), U128(2*ONE_LPT), None),
+        ex.ft_transfer(":0".to_string(), owner.valid_account_id(), U128(2*ONE_LPT), None),
         deposit = 1
     );
     assert_failure(outcome, "E34: insufficient lp shares");
@@ -562,7 +562,7 @@ fn sim_stable_e14 () {
 
     let outcome = call!(
         root,
-        ex.mft_register(":0".to_string(), ex.valid_account_id()),
+        ex.ft_register(":0".to_string(), ex.valid_account_id()),
         deposit = to_yocto("1")
     );
     assert_failure(outcome, "E14: LP already registered");

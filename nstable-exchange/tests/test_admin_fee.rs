@@ -42,7 +42,7 @@ fn modify_admin_fee() {
 
     // for a new pool, there is no lp token for the exchange
     assert_eq!(
-        view!(pool.mft_balance_of(":0".to_string(), pool.valid_account_id()))
+        view!(pool.ft_balance_of(":0".to_string(), pool.valid_account_id()))
             .unwrap_json::<U128>()
             .0,
         to_yocto("0")
@@ -76,7 +76,7 @@ fn modify_admin_fee() {
     prev_eth += 1814048647419868151852693;
     // the exchange got some lp tokens as 4 bps in 25 bps.
     assert_eq!(
-        view!(pool.mft_balance_of(":0".to_string(), pool.valid_account_id()))
+        view!(pool.ft_balance_of(":0".to_string(), pool.valid_account_id()))
             .unwrap_json::<U128>()
             .0,
         45457128392697592
@@ -124,7 +124,7 @@ fn modify_admin_fee() {
     prev_usdt -= to_yocto("1");
     prev_eth += 1814048647419868151852693;
     assert_eq!(
-        view!(pool.mft_balance_of(":1".to_string(), pool.valid_account_id()))
+        view!(pool.ft_balance_of(":1".to_string(), pool.valid_account_id()))
             .unwrap_json::<U128>()
             .0,
         18182851357079036914
@@ -146,7 +146,7 @@ fn modify_admin_fee() {
     out_come.assert_success();
     assert_eq!(get_error_count(&out_come), 0);
     assert_eq!(
-        view!(pool.mft_balance_of(":0".to_string(), pool.valid_account_id()))
+        view!(pool.ft_balance_of(":0".to_string(), pool.valid_account_id()))
             .unwrap_json::<U128>()
             .0,
         0
@@ -165,7 +165,7 @@ fn modify_admin_fee() {
     out_come.assert_success();
     assert_eq!(get_error_count(&out_come), 0);
     assert_eq!(
-        view!(pool.mft_balance_of(":0".to_string(), pool.valid_account_id()))
+        view!(pool.ft_balance_of(":0".to_string(), pool.valid_account_id()))
             .unwrap_json::<U128>()
             .0,
         0

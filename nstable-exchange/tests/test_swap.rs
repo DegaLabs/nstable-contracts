@@ -65,12 +65,12 @@ fn balance_of(token: &ContractAccount<TestToken>, account_id: &AccountId) -> u12
         .0
 }
 
-fn mft_balance_of(
+fn ft_balance_of(
     pool: &ContractAccount<Exchange>,
     token_or_pool: &str,
     account_id: &AccountId,
 ) -> u128 {
-    view!(pool.mft_balance_of(token_or_pool.to_string(), to_va(account_id.clone())))
+    view!(pool.ft_balance_of(token_or_pool.to_string(), to_va(account_id.clone())))
         .unwrap_json::<U128>()
         .0
 }
@@ -171,13 +171,13 @@ fn test_swap() {
         }
     );
     assert_eq!(
-        view!(pool.mft_metadata(":0".to_string()))
+        view!(pool.ft_metadata(":0".to_string()))
             .unwrap_json::<FungibleTokenMetadata>()
             .name,
         "nstable-pool-0"
     );
     assert_eq!(
-        view!(pool.mft_balance_of(":0".to_string(), to_va(root.account_id.clone())))
+        view!(pool.ft_balance_of(":0".to_string(), to_va(root.account_id.clone())))
             .unwrap_json::<U128>()
             .0,
         to_yocto("1")
@@ -374,7 +374,7 @@ fn test_direct_swap() {
     direct_swap(&new_user, &token1);
     assert_eq!(balance_of(&token1, &new_user.account_id), to_yocto("9"));
     assert_eq!(balance_of(&token2, &new_user.account_id), to_yocto("0"));
-    assert!(mft_balance_of(&pool, &token2.account_id(), &owner.account_id) > to_yocto("1"));
+    assert!(ft_balance_of(&pool, &token2.account_id(), &owner.account_id) > to_yocto("1"));
 
     // Test that token2 account exists, everything works.
     call!(
@@ -403,5 +403,5 @@ fn test_direct_swap() {
     direct_swap(&new_user, &token1);
     assert_eq!(balance_of(&token1, &new_user.account_id), to_yocto("6"));
     assert_eq!(balance_of(&token2, &new_user.account_id), 0);
-    assert!(mft_balance_of(&pool, &token2.account_id(), &new_user.account_id) > to_yocto("0.5"));
+    assert!(ft_balance_of(&pool, &token2.account_id(), &new_user.account_id) > to_yocto("0.5"));
 }

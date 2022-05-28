@@ -83,5 +83,5 @@ pub const ERR104_INITIALIZED: &str = "E104: pool is initialized";
 pub const ERR105_POOL_NOT_INITIALIZED: &str = "E105: pool is not initialized";
 pub const ERR106_WRONG_INPUT_LENGTH: &str = "E106: wrong input length";
 
-//mft
+//ft
 pub const ERR110_INVALID_REGISTER: &str = "E110: Invalid register";

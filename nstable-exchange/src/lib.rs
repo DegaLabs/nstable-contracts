@@ -606,7 +606,7 @@ mod tests {
         );
         // transfer some of token_id 2 from acc 3 to acc 1.
         testing_env!(context.predecessor_account_id(accounts(3)).build());
-        contract.mft_transfer(accounts(2).to_string(), accounts(1), U128(one_near), None);
+        contract.ft_transfer(accounts(2).to_string(), accounts(1), U128(one_near), None);
         assert_eq!(
             contract.get_deposit(accounts(3), accounts(2)).0,
             99 * one_near + amount_out
@@ -617,13 +617,13 @@ mod tests {
             .predecessor_account_id(accounts(3))
             .attached_deposit(to_yocto("0.0067"))
             .build());
-        contract.mft_register(":0".to_string(), accounts(1));
+        contract.ft_register(":0".to_string(), accounts(1));
         testing_env!(context
             .predecessor_account_id(accounts(3))
             .attached_deposit(1)
             .build());
         // transfer 1m shares in pool 0 to acc 1.
-        contract.mft_transfer(":0".to_string(), accounts(1), U128(1_000_000), None);
+        contract.ft_transfer(":0".to_string(), accounts(1), U128(1_000_000), None);
 
         testing_env!(context.predecessor_account_id(accounts(3)).build());
         contract.remove_liquidity(
@@ -909,39 +909,39 @@ mod tests {
         testing_env!(context.attached_deposit(to_yocto("0.0007")).build());
         contract.add_liquidity(id, vec![U128(to_yocto("50")), U128(to_yocto("10"))], None);
         assert_eq!(
-            contract.mft_balance_of(":0".to_string(), accounts(3)).0,
+            contract.ft_balance_of(":0".to_string(), accounts(3)).0,
             to_yocto("1")
         );
-        assert_eq!(contract.mft_total_supply(":0".to_string()).0, to_yocto("1"));
+        assert_eq!(contract.ft_total_supply(":0".to_string()).0, to_yocto("1"));
         testing_env!(context.attached_deposit(1).build());
         contract.add_liquidity(id, vec![U128(to_yocto("50")), U128(to_yocto("50"))], None);
         assert_eq!(
-            contract.mft_balance_of(":0".to_string(), accounts(3)).0,
+            contract.ft_balance_of(":0".to_string(), accounts(3)).0,
             to_yocto("2")
         );
-        assert_eq!(contract.mft_total_supply(":0".to_string()).0, to_yocto("2"));
+        assert_eq!(contract.ft_total_supply(":0".to_string()).0, to_yocto("2"));
 
         // register another user
         testing_env!(context
             .predecessor_account_id(accounts(4))
             .attached_deposit(to_yocto("0.00071"))
             .build());
-        contract.mft_register(":0".to_string(), accounts(4));
+        contract.ft_register(":0".to_string(), accounts(4));
         // make transfer to him
         testing_env!(context
             .predecessor_account_id(accounts(3))
             .attached_deposit(1)
             .build());
-        contract.mft_transfer(":0".to_string(), accounts(4), U128(to_yocto("1")), None);
+        contract.ft_transfer(":0".to_string(), accounts(4), U128(to_yocto("1")), None);
         assert_eq!(
-            contract.mft_balance_of(":0".to_string(), accounts(3)).0,
+            contract.ft_balance_of(":0".to_string(), accounts(3)).0,
             to_yocto("1")
         );
         assert_eq!(
-            contract.mft_balance_of(":0".to_string(), accounts(4)).0,
+            contract.ft_balance_of(":0".to_string(), accounts(4)).0,
             to_yocto("1")
         );
-        assert_eq!(contract.mft_total_supply(":0".to_string()).0, to_yocto("2"));
+        assert_eq!(contract.ft_total_supply(":0".to_string()).0, to_yocto("2"));
         // remove lpt for account 3
         testing_env!(context
             .predecessor_account_id(accounts(3))
@@ -949,11 +949,11 @@ mod tests {
             .build());
         contract.remove_liquidity(id, U128(to_yocto("0.6")), vec![U128(1), U128(1)]);
         assert_eq!(
-            contract.mft_balance_of(":0".to_string(), accounts(3)).0,
+            contract.ft_balance_of(":0".to_string(), accounts(3)).0,
             to_yocto("0.4")
         );
         assert_eq!(
-            contract.mft_total_supply(":0".to_string()).0,
+            contract.ft_total_supply(":0".to_string()).0,
             to_yocto("1.4")
         );
         // remove lpt for account 4 who got lpt from others
@@ -970,11 +970,11 @@ mod tests {
             .build());
         contract.remove_liquidity(id, U128(to_yocto("1")), vec![U128(1), U128(1)]);
         assert_eq!(
-            contract.mft_balance_of(":0".to_string(), accounts(4)).0,
+            contract.ft_balance_of(":0".to_string(), accounts(4)).0,
             to_yocto("0")
         );
         assert_eq!(
-            contract.mft_total_supply(":0".to_string()).0,
+            contract.ft_total_supply(":0".to_string()).0,
             to_yocto("0.4")
         );
 
@@ -984,7 +984,7 @@ mod tests {
             .predecessor_account_id(accounts(4))
             .attached_deposit(to_yocto("0.00071"))
             .build());
-        contract.mft_register(":0".to_string(), accounts(4));
+        contract.ft_register(":0".to_string(), accounts(4));
     }
 
     #[test]
@@ -1013,13 +1013,13 @@ mod tests {
         testing_env!(context.attached_deposit(to_yocto("0.0007")).build());
         contract.add_liquidity(id, vec![U128(to_yocto("50")), U128(to_yocto("10"))], None);
         assert_eq!(
-            contract.mft_balance_of(":0".to_string(), accounts(3)).0,
+            contract.ft_balance_of(":0".to_string(), accounts(3)).0,
             to_yocto("1")
         );
         testing_env!(context.attached_deposit(1).build());
         contract.add_liquidity(id, vec![U128(to_yocto("50")), U128(to_yocto("50"))], None);
         assert_eq!(
-            contract.mft_balance_of(":0".to_string(), accounts(3)).0,
+            contract.ft_balance_of(":0".to_string(), accounts(3)).0,
             to_yocto("2")
         );
 
@@ -1028,7 +1028,7 @@ mod tests {
             .predecessor_account_id(accounts(3))
             .attached_deposit(1)
             .build());
-        contract.mft_transfer(":0".to_string(), accounts(3), U128(to_yocto("1")), None);
+        contract.ft_transfer(":0".to_string(), accounts(3), U128(to_yocto("1")), None);
     }
 
     #[test]
@@ -1129,7 +1129,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mft_transfer_call() {
+    fn test_ft_transfer_call() {
         let one_near = 10u128.pow(24);
         let (mut context, mut contract) = setup_contract();
         // add liquidity of (1,2) tokens
@@ -1181,15 +1181,15 @@ mod tests {
         );
         assert_eq!(
             "nstable-pool-0".to_string(),
-            contract.mft_metadata(":0".to_string()).name
+            contract.ft_metadata(":0".to_string()).name
         );
         // transfer some of token_id 2 from acc 3 to acc 1.
         testing_env!(context.predecessor_account_id(accounts(3)).build());
-        contract.mft_transfer_call(
+        contract.ft_transfer_call(
             accounts(2).to_string(),
             accounts(1),
             U128(one_near),
-            Some("mft".to_string()),
+            Some("ft".to_string()),
             "".to_string(),
         );
         assert_eq!(

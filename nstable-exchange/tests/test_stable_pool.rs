@@ -41,13 +41,13 @@ fn sim_stable_swap() {
         }
     );
     assert_eq!(
-        view!(pool.mft_metadata(":0".to_string()))
+        view!(pool.ft_metadata(":0".to_string()))
             .unwrap_json::<FungibleTokenMetadata>()
             .name,
         "nstable-pool-0"
     );
     assert_eq!(
-        view!(pool.mft_balance_of(":0".to_string(), to_va(root.account_id.clone())))
+        view!(pool.ft_balance_of(":0".to_string(), to_va(root.account_id.clone())))
             .unwrap_json::<U128>()
             .0,
         300000*ONE_LPT
@@ -130,7 +130,7 @@ fn sim_stable_lp() {
         );
     let tokens = &tokens;
     let last_share_price = pool_share_price(&pool, 0);
-    let last_lpt_supply = mft_total_supply(&pool, ":0");
+    let last_lpt_supply = ft_total_supply(&pool, ":0");
 
     // add more liquidity with balanced tokens
     let user1 = root.create_user("user1".to_string(), to_yocto("100"));
@@ -145,7 +145,7 @@ fn sim_stable_lp() {
     out_come.assert_success();
     println!("{:#?}", get_logs(&out_come));
     assert_eq!(pool_share_price(&pool, 0), last_share_price);
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply + 1500*ONE_LPT);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply + 1500*ONE_LPT);
     let last_lpt_supply = last_lpt_supply + 1500*ONE_LPT;
 
     // remove by shares
@@ -156,14 +156,14 @@ fn sim_stable_lp() {
     );
     out_come.assert_success();
     println!("{:#?}", get_logs(&out_come));
-    assert_eq!(mft_balance_of(&pool, ":0", &user1.account_id()), 1200*ONE_LPT);
+    assert_eq!(ft_balance_of(&pool, ":0", &user1.account_id()), 1200*ONE_LPT);
     let balances = view!(pool.get_deposits(user1.valid_account_id()))
         .unwrap_json::<HashMap<AccountId, U128>>();
     assert_eq!(balances[&dai()].0, 100*ONE_DAI);
     assert_eq!(balances[&usdt()].0, 100*ONE_USDT);
     assert_eq!(balances[&usdc()].0, 100*ONE_USDC);
     assert_eq!(pool_share_price(&pool, 0), last_share_price);
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply - 300*ONE_LPT);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply - 300*ONE_LPT);
     let last_lpt_supply = last_lpt_supply - 300*ONE_LPT;
 
     // add more liquidity with imba tokens
@@ -190,11 +190,11 @@ fn sim_stable_lp() {
             shares_total_supply: U128(301200*ONE_LPT+699699997426210330025+47999999735823255),
         }
     );
-    assert_eq!(mft_balance_of(&pool, ":0", &user1.account_id()), 1200*ONE_LPT);
-    assert_eq!(mft_balance_of(&pool, ":0", &user2.account_id()), 699699997426210330025);
+    assert_eq!(ft_balance_of(&pool, ":0", &user1.account_id()), 1200*ONE_LPT);
+    assert_eq!(ft_balance_of(&pool, ":0", &user2.account_id()), 699699997426210330025);
     assert!(pool_share_price(&pool, 0) > last_share_price);
     let last_share_price = pool_share_price(&pool, 0);
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply + 699699997426210330025 + 47999999735823255);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply + 699699997426210330025 + 47999999735823255);
     let last_lpt_supply = last_lpt_supply + 699699997426210330025 + 47999999735823255;
 
     // remove by tokens
@@ -205,7 +205,7 @@ fn sim_stable_lp() {
     );
     out_come.assert_success();
     println!("{:#?}", get_logs(&out_come));
-    assert_eq!(mft_balance_of(&pool, ":0", &user1.account_id()), 697401508719920229455);
+    assert_eq!(ft_balance_of(&pool, ":0", &user1.account_id()), 697401508719920229455);
     let balances = view!(pool.get_deposits(user1.valid_account_id()))
         .unwrap_json::<HashMap<AccountId, U128>>();
     assert_eq!(balances[&dai()].0, 101*ONE_DAI);
@@ -222,8 +222,8 @@ fn sim_stable_lp() {
             shares_total_supply: U128(last_lpt_supply-502598491280079770545+95823884420348155),
         }
     );
-    assert_eq!(mft_balance_of(&pool, ":0", &user1.account_id()), 1200*ONE_LPT-502598491280079770545);
-    assert_eq!(mft_balance_of(&pool, ":0", &user2.account_id()), 699699997426210330025);
+    assert_eq!(ft_balance_of(&pool, ":0", &user1.account_id()), 1200*ONE_LPT-502598491280079770545);
+    assert_eq!(ft_balance_of(&pool, ":0", &user2.account_id()), 699699997426210330025);
     assert!(pool_share_price(&pool, 0) > last_share_price);
     let last_share_price = pool_share_price(&pool, 0);
     let last_lpt_supply = last_lpt_supply - 502598491280079770545 + 95823884420348155;
@@ -231,15 +231,15 @@ fn sim_stable_lp() {
     // tansfer some to other
     let out_come = call!(
         user1,
-        pool.mft_transfer(":0".to_string(), user2.valid_account_id(), U128(100*ONE_LPT), None),
+        pool.ft_transfer(":0".to_string(), user2.valid_account_id(), U128(100*ONE_LPT), None),
         deposit = 1 
     );
     out_come.assert_success();
     println!("{:#?}", get_logs(&out_come));
-    assert_eq!(mft_balance_of(&pool, ":0", &user1.account_id()), 1100*ONE_LPT-502598491280079770545);
-    assert_eq!(mft_balance_of(&pool, ":0", &user2.account_id()), 799699997426210330025);
+    assert_eq!(ft_balance_of(&pool, ":0", &user1.account_id()), 1100*ONE_LPT-502598491280079770545);
+    assert_eq!(ft_balance_of(&pool, ":0", &user2.account_id()), 799699997426210330025);
     assert_eq!(pool_share_price(&pool, 0), last_share_price);
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply);
 
     // other remove by shares trigger slippage
     let out_come = call!(
@@ -252,7 +252,7 @@ fn sim_stable_lp() {
     // println!("ex_status: {}", ex_status);
     assert!(ex_status.contains("E68: slippage error"));
     assert_eq!(pool_share_price(&pool, 0), last_share_price);
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply);
 
     // other remove by tokens trigger slippage
     let out_come = call!(
@@ -264,11 +264,11 @@ fn sim_stable_lp() {
     let ex_status = format!("{:?}", out_come.promise_errors()[0].as_ref().unwrap().status());
     assert!(ex_status.contains("E68: slippage error"));
     assert_eq!(pool_share_price(&pool, 0), last_share_price);
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply);
 
     // user2 remove by share
-    assert_eq!(mft_balance_of(&pool, ":0", &user1.account_id()), 1100*ONE_LPT-502598491280079770545);
-    assert_eq!(mft_balance_of(&pool, ":0", &user2.account_id()), 799699997426210330025);
+    assert_eq!(ft_balance_of(&pool, ":0", &user1.account_id()), 1100*ONE_LPT-502598491280079770545);
+    assert_eq!(ft_balance_of(&pool, ":0", &user2.account_id()), 799699997426210330025);
     let out_come = call!(
         user2,
         pool.remove_liquidity(0, U128(300*ONE_LPT), vec![U128(1*ONE_DAI), U128(1*ONE_USDT), U128(1*ONE_USDC)]),
@@ -276,10 +276,10 @@ fn sim_stable_lp() {
     );
     out_come.assert_success();
     println!("{:#?}", get_logs(&out_come));
-    assert_eq!(mft_balance_of(&pool, ":0", &user1.account_id()), 1100*ONE_LPT-502598491280079770545);
-    assert_eq!(mft_balance_of(&pool, ":0", &user2.account_id()), 499699997426210330025);
+    assert_eq!(ft_balance_of(&pool, ":0", &user1.account_id()), 1100*ONE_LPT-502598491280079770545);
+    assert_eq!(ft_balance_of(&pool, ":0", &user2.account_id()), 499699997426210330025);
     assert_eq!(pool_share_price(&pool, 0), last_share_price);
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply-300*ONE_LPT);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply-300*ONE_LPT);
     let last_lpt_supply = last_lpt_supply - 300*ONE_LPT;
     
     // user2 remove by tokens
@@ -290,12 +290,12 @@ fn sim_stable_lp() {
     );
     out_come.assert_success();
     println!("{:#?}", get_logs(&out_come));
-    assert_eq!(mft_balance_of(&pool, ":0", &user1.account_id()), 1100*ONE_LPT-502598491280079770545);
+    assert_eq!(ft_balance_of(&pool, ":0", &user1.account_id()), 1100*ONE_LPT-502598491280079770545);
     // previous lpt - removed lpt
-    assert_eq!(mft_balance_of(&pool, ":0", &user2.account_id()), 499699997426210330025-498596260777261245961);
+    assert_eq!(ft_balance_of(&pool, ":0", &user2.account_id()), 499699997426210330025-498596260777261245961);
     // last_lpt_supply - removed lpt + admin_fee_to_lpt
     let last_lpt_supply = last_lpt_supply - 498596260777261245961 + 95600058313712936;
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply);
     assert!(pool_share_price(&pool, 0) > last_share_price);
     let last_share_price = pool_share_price(&pool, 0);
     println!("share_price: {}", last_share_price);
@@ -313,10 +313,10 @@ fn sim_stable_lp() {
     out_come.assert_success();
     println!("{:#?}", get_logs(&out_come));
     // minted_user_lpt
-    assert_eq!(mft_balance_of(&pool, ":0", &user3.account_id()), 299997852137498188726149828936);
+    assert_eq!(ft_balance_of(&pool, ":0", &user3.account_id()), 299997852137498188726149828936);
     // last_lpt_supply + minted_user_lpt + admin_fee_to_lpt
     let last_lpt_supply = last_lpt_supply + 299997852137498188726149828936 + 143329282015797902428349;
-    assert_eq!(mft_total_supply(&pool, ":0"), last_lpt_supply);
+    assert_eq!(ft_total_supply(&pool, ":0"), last_lpt_supply);
     let last_share_price = pool_share_price(&pool, 0);
     println!("share_price: {}", last_share_price);
 }
@@ -362,8 +362,8 @@ fn sim_stable_max_liquidity() {
     );
     out_come.assert_success();
     println!("{:#?}", get_logs(&out_come));
-    assert_eq!(mft_balance_of(&pool, ":0", &user.account_id()), 900000000000000000000000000000);
-    assert_eq!(mft_total_supply(&pool, ":0"), 900000900000000000000000000000);
+    assert_eq!(ft_balance_of(&pool, ":0", &user.account_id()), 900000000000000000000000000000);
+    assert_eq!(ft_total_supply(&pool, ":0"), 900000900000000000000000000000);
     let last_share_price = pool_share_price(&pool, 0);
     println!("share_price: {}", last_share_price);
 }

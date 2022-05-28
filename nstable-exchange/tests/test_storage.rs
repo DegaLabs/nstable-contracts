@@ -8,7 +8,7 @@
 /// For T storage:
 ///   Each pool has its own LP token, 
 ///   Each lp as a token holder would do storage_register, in REF, that is,
-///     lp can call explicitly [mft_register], suggested deposit amount is 0.005, unused part would refund,
+///     lp can call explicitly [ft_register], suggested deposit amount is 0.005, unused part would refund,
 ///     lp can call [add_liquidity], suggested deposit amount is 0.005, unused part would refund,
 ///   The contract self would be registered by pool creator 
 ///     when [add_simple_pool] and [add_stable_swap_pool], 
@@ -276,7 +276,7 @@ fn storage_scenario_02() {
     let user3 = root.create_user("user3".to_string(), to_yocto("100"));
     let out_come = call!(
         new_user,
-        pool.mft_transfer(":0".to_string(), user3.valid_account_id(), U128(5*ONE_LPT), None),
+        pool.ft_transfer(":0".to_string(), user3.valid_account_id(), U128(5*ONE_LPT), None),
         deposit = 1
     );
     assert!(!out_come.is_ok());
@@ -286,13 +286,13 @@ fn storage_scenario_02() {
     println!("Storage Case 0207: remove liquidity would fail if not enough storage for received token");
     let out_come = call!(
         new_user,
-        pool.mft_register(":0".to_string(), user3.valid_account_id()),
+        pool.ft_register(":0".to_string(), user3.valid_account_id()),
         deposit = to_yocto("0.00074")
     );
     out_come.assert_success();
     let out_come = call!(
         new_user,
-        pool.mft_transfer(":0".to_string(), user3.valid_account_id(), U128(5*ONE_LPT), None),
+        pool.ft_transfer(":0".to_string(), user3.valid_account_id(), U128(5*ONE_LPT), None),
         deposit = 1
     );
     out_come.assert_success();

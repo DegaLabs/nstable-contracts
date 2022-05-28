@@ -6,8 +6,8 @@ use crate::utils::{GAS_FOR_FT_TRANSFER_CALL, GAS_FOR_RESOLVE_TRANSFER, NO_DEPOSI
 use crate::*;
 
 #[ext_contract(ext_self)]
-trait MFTTokenResolver {
-    fn mft_resolve_transfer(
+trait FTTokenResolver {
+    fn ft_resolve_transfer(
         &mut self,
         token_id: String,
         sender_id: AccountId,
@@ -17,8 +17,8 @@ trait MFTTokenResolver {
 }
 
 #[ext_contract(ext_share_token_receiver)]
-pub trait MFTTokenReceiver {
-    fn mft_on_transfer(
+pub trait FTTokenReceiver {
+    fn ft_on_transfer(
         &mut self,
         token_id: String,
         sender_id: AccountId,
@@ -33,8 +33,8 @@ enum TokenOrPool {
 }
 
 /// [AUDIT_06]
-/// This is used to parse token_id fields in mft protocol used in ref,
-/// So, if we choose #nn as a partern, should announce it in mft protocol.
+/// This is used to parse token_id fields in ft protocol used in ref,
+/// So, if we choose #nn as a partern, should announce it in ft protocol.
 /// cause : is not allowed in a normal account id, it can be a partern leading char
 fn try_identify_pool_id(token_id: &String) -> Result<u64, &'static str> {
     if token_id.starts_with(":") {
@@ -58,7 +58,7 @@ fn parse_token_id(token_id: String) -> TokenOrPool {
 
 #[near_bindgen]
 impl Contract {
-    fn internal_mft_transfer(
+    fn internal_ft_transfer(
         &mut self,
         token_id: String,
         sender_id: &AccountId,
@@ -103,7 +103,7 @@ impl Contract {
         }
     }
 
-    fn internal_mft_balance(&self, token_id: String, account_id: &AccountId) -> Balance {
+    fn internal_ft_balance(&self, token_id: String, account_id: &AccountId) -> Balance {
         match parse_token_id(token_id) {
             TokenOrPool::Pool(pool_id) => {
                 let pool = self.pools.get(pool_id).expect(ERR85_NO_POOL);
@@ -114,14 +114,14 @@ impl Contract {
     }
 
     /// Returns the balance of the given account. If the account doesn't exist will return `"0"`.
-    pub fn mft_balance_of(&self, token_id: String, account_id: ValidAccountId) -> U128 {
-        self.internal_mft_balance(token_id, account_id.as_ref())
+    pub fn ft_balance_of(&self, token_id: String, account_id: ValidAccountId) -> U128 {
+        self.internal_ft_balance(token_id, account_id.as_ref())
             .into()
     }
 
     /// Returns the total supply of the given token, if the token is one of the pools.
     /// If token references external token - fails with unimplemented.
-    pub fn mft_total_supply(&self, token_id: String) -> U128 {
+    pub fn ft_total_supply(&self, token_id: String) -> U128 {
         match parse_token_id(token_id) {
             TokenOrPool::Pool(pool_id) => {
                 let pool = self.pools.get(pool_id).expect(ERR85_NO_POOL);
@@ -134,7 +134,7 @@ impl Contract {
     /// Register LP token of given pool for given account.
     /// Fails if token_id is not a pool.
     #[payable]
-    pub fn mft_register(&mut self, token_id: String, account_id: ValidAccountId) {
+    pub fn ft_register(&mut self, token_id: String, account_id: ValidAccountId) {
         self.assert_contract_running();
         let prev_storage = env::storage_usage();
         match parse_token_id(token_id) {
@@ -151,7 +151,7 @@ impl Contract {
     /// Transfer one of internal tokens: LP or balances.
     /// `token_id` can either by account of the token or pool number.
     #[payable]
-    pub fn mft_transfer(
+    pub fn ft_transfer(
         &mut self,
         token_id: String,
         receiver_id: ValidAccountId,
@@ -160,7 +160,7 @@ impl Contract {
     ) {
         assert_one_yocto();
         self.assert_contract_running();
-        self.internal_mft_transfer(
+        self.internal_ft_transfer(
             token_id,
             &env::predecessor_account_id(),
             receiver_id.as_ref(),
@@ -170,7 +170,7 @@ impl Contract {
     }
 
     #[payable]
-    pub fn mft_transfer_call(
+    pub fn ft_transfer_call(
         &mut self,
         token_id: String,
         receiver_id: ValidAccountId,
@@ -181,14 +181,14 @@ impl Contract {
         assert_one_yocto();
         self.assert_contract_running();
         let sender_id = env::predecessor_account_id();
-        self.internal_mft_transfer(
+        self.internal_ft_transfer(
             token_id.clone(),
             &sender_id,
             receiver_id.as_ref(),
             amount.0,
             memo,
         );
-        ext_share_token_receiver::mft_on_transfer(
+        ext_share_token_receiver::ft_on_transfer(
             token_id.clone(),
             sender_id.clone(),
             amount,
@@ -197,7 +197,7 @@ impl Contract {
             NO_DEPOSIT,
             env::prepaid_gas() - GAS_FOR_FT_TRANSFER_CALL,
         )
-        .then(ext_self::mft_resolve_transfer(
+        .then(ext_self::ft_resolve_transfer(
             token_id,
             sender_id,
             receiver_id.into(),
@@ -213,7 +213,7 @@ impl Contract {
     /// If sender removed account in the meantime, the tokens are sent to the contract account.
     /// Tokens are never burnt.
     #[private]
-    pub fn mft_resolve_transfer(
+    pub fn ft_resolve_transfer(
         &mut self,
         token_id: String,
         sender_id: AccountId,
@@ -232,7 +232,7 @@ impl Contract {
             PromiseResult::Failed => amount.0,
         };
         if unused_amount > 0 {
-            let receiver_balance = self.internal_mft_balance(token_id.clone(), &receiver_id);
+            let receiver_balance = self.internal_ft_balance(token_id.clone(), &receiver_id);
             if receiver_balance > 0 {
                 let refund_amount = std::cmp::min(receiver_balance, unused_amount);
                 
@@ -243,20 +243,20 @@ impl Contract {
                     // Funds are sent to the contract account.
                     env::current_account_id()
                 };
-                self.internal_mft_transfer(token_id, &receiver_id, &refund_to, refund_amount, None);
+                self.internal_ft_transfer(token_id, &receiver_id, &refund_to, refund_amount, None);
             }
         }
         U128(unused_amount)
     }
 
-    pub fn mft_metadata(&self, token_id: String) -> FungibleTokenMetadata {
+    pub fn ft_metadata(&self, token_id: String) -> FungibleTokenMetadata {
         match parse_token_id(token_id) {
             TokenOrPool::Pool(pool_id) => {
                 let pool = self.pools.get(pool_id).expect(ERR85_NO_POOL);
                 let decimals = pool.get_share_decimal();
                 FungibleTokenMetadata {
                     // [AUDIT_08]
-                    spec: "mft-1.0.0".to_string(),
+                    spec: "ft-1.0.0".to_string(),
                     name: format!("nstable-pool-{}", pool_id),
                     symbol: format!("NSTABLE-POOL-{}", pool_id),
                     icon: None,
