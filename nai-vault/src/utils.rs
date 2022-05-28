@@ -95,4 +95,14 @@ impl Contract {
             GAS_FOR_RESOLVE_TRANSFER,
         ))
     }
+
+    pub fn compute_cr(&self, collateral_value: &U256, borrowed: &Balance, collateral_decimals: u8) -> u64 {
+        let ret = collateral_value * U256::from(10u128.pow(18 as u32)) * U256::from(COLLATERAL_RATIO_DIVISOR as u64)
+                / (U256::from(borrowed.clone()) * U256::from(10u128.pow(collateral_decimals as u32)));
+        ret.as_u64()
+    }
+
+    pub fn compute_collateral_value(&self, collateral_amount: &Balance, price: &Price) -> U256 {
+        return U256::from(collateral_amount.clone()) * U256::from(price.multiplier.0) * U256::from(10u128.pow(price.decimals as u32));
+    }
 }

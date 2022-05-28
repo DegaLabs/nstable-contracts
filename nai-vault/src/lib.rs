@@ -11,7 +11,7 @@ use near_sdk::collections::{LazyOption, LookupMap};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, near_bindgen, require, log, AccountId, Balance, BorshStorageKey, Gas,
+    assert_one_yocto, env, log, near_bindgen, require, AccountId, Balance, BorshStorageKey, Gas,
     PanicOnDefault, Promise, StorageUsage,
 };
 
@@ -27,6 +27,7 @@ use std::fmt::Debug;
 use views::U256;
 
 const BORROW_FEE_DIVISOR: u128 = 10000;
+const COLLATERAL_RATIO_DIVISOR: u128 = 10000;
 const LOW_POSITION_VALUE_NAI: u128 = 20 * (10u128.pow(18 as u32));
 
 #[derive(BorshStorageKey, BorshSerialize)]
@@ -189,7 +190,7 @@ impl AccountDeposit {
 #[serde(crate = "near_sdk::serde")]
 pub struct TokenInfo {
     pub token_id: AccountId,
-    pub collateral_ratio: u64,
+    pub collateral_ratio: u64, //not percentage, but per 10000, for example collateral_ratio = 15000 means 150%
     pub total_deposit: U128,
     pub total_borrowed: U128, //NAI balance
     pub decimals: u8,
@@ -368,7 +369,8 @@ impl Contract {
             vault.borrowed = U128(vault.borrowed.0 - pay_amount.0);
         }
         token_info.total_borrowed = U128(token_info.total_borrowed.0 - burn);
-        self.supported_tokens.insert(collateral_token_id, &token_info);
+        self.supported_tokens
+            .insert(collateral_token_id, &token_info);
         self.total_nai_borrowed = U128(self.total_nai_borrowed.0 - burn);
         account_deposit.vaults[vault_index] = vault;
         self.accounts.insert(&account_id, &account_deposit);
@@ -502,8 +504,7 @@ impl Contract {
 
         let liquidate_value = (U256::from(nai_amount.0)
             * U256::from(10u128.pow(token_info.decimals as u32)))
-            * U256::from(collateral_ratio)
-            / (U256::from(10u128.pow(18 as u32)) * U256::from(10000 as u64));
+            / (U256::from(10u128.pow(18 as u32)));
         let liquidate_collateral = liquidate_value
             * U256::from(10u128.pow(price_after_liquidation_price_fee.decimals as u32))
             / U256::from(price_after_liquidation_price_fee.multiplier.0);
@@ -519,14 +520,12 @@ impl Contract {
         vault.borrowed = U128(vault.borrowed.0 - nai_amount.0);
 
         if vault.borrowed.0 == 0 {
-            //liquidate all if the remaining deposited value <= LOW_POSITION_VALUE_NAI * collateral_ratio
-            let mut remain_collateral_value = U256::from(vault.deposited.0)
-                * U256::from(price.multiplier.0)
-                / (10u128.pow(price.decimals as u32));
-            remain_collateral_value = remain_collateral_value * U256::from(10u128.pow(18 as u32))
+            //liquidate all if the remaining deposited value <= LOW_POSITION_VALUE_NAI
+            let remain_collateral_value = self.compute_collateral_value(&vault.deposited.0, &price);
+            let remain_collateral_value_in_nai = remain_collateral_value * U256::from(10u128.pow(18 as u32))
                 / U256::from(10u128.pow(token_info.decimals as u32));
             require!(
-                remain_collateral_value.as_u128() <= LOW_POSITION_VALUE_NAI,
+                remain_collateral_value_in_nai.as_u128() <= LOW_POSITION_VALUE_NAI,
                 "remaining collateral must be  below 20$ to liquidate all"
             );
             liquidate_collateral = liquidate_collateral + vault.deposited.0;
@@ -542,7 +541,14 @@ impl Contract {
         //burn nai
         self.token.internal_withdraw(&maker_id, nai_amount.0);
 
-        let liquidate_collateral_to_treasury = liquidate_collateral * 50 / 100;
+        //compute liquidated collateral amount to cover NAI burnt by maker
+        let liquidate_collateral_to_cover_nai_burnt = liquidate_value
+        * U256::from(10u128.pow(price.decimals as u32))
+        / U256::from(price.multiplier.0);
+        let liquidate_collateral_to_cover_nai_burnt = liquidate_collateral_to_cover_nai_burnt.as_u128();
+        let remain_penalty_in_collateral = liquidate_collateral - liquidate_collateral_to_cover_nai_burnt;
+
+        let liquidate_collateral_to_treasury = remain_penalty_in_collateral * 50 / 100;
         let liquidate_collateral_to_maker = liquidate_collateral - liquidate_collateral_to_treasury;
 
         //deposit to maker & foundation account
@@ -557,7 +563,7 @@ impl Contract {
             &maker_id,
         );
 
-        //save vault
+        //save vault of account_id
         account_deposit.vaults[vault_index] = vault.clone();
         self.accounts.insert(&account_id, &account_deposit);
 
