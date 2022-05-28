@@ -7,7 +7,8 @@ members = [
     "./test-token",
     "./ve-token",
     "./nstable-farming",
-    "./nstable-farming-v2"
+    "./nstable-farming-v2",
+    "./staking"
 ]
 
 
