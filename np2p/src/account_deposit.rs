@@ -20,8 +20,9 @@ pub struct AccountDeposit {
     pub borrow_amount: Balance,
 
     //lending interest when account is a lender
-    pub lending_interest_reward_debt: Balance, //interest debt when in a lending position, this is similar to rewardDebt in sushi farming
-    pub unpaid_lending_interest_reward: Balance,
+    pub lending_interest_profit_debt: Balance, //interest debt when in a lending position, this is similar to rewardDebt in sushi farming
+    pub unpaid_lending_interest_profit: Balance,
+    pub total_lending_interest_profit: Balance,
     pub last_lending_interest_reward_update_timestamp_sec: u64,
 
     //borrowing interest when accc is a borrower
@@ -44,8 +45,9 @@ impl AccountDeposit {
             collateral_token_id: collateral_token_id.clone(),
             deposits: UnorderedMap::new(format!("d{}", pool_id.clone()).as_bytes()),
             borrow_amount: 0,
-            lending_interest_reward_debt: 0,
-            unpaid_lending_interest_reward: 0,
+            lending_interest_profit_debt: 0,
+            unpaid_lending_interest_profit: 0,
+            total_lending_interest_profit: 0,
             last_lending_interest_reward_update_timestamp_sec: 0,
             unpaid_borrowing_interest: 0,
             total_borrowing_interest: 0,
@@ -77,8 +79,9 @@ impl AccountDeposit {
             * U256::from(acc_interest_per_share.clone())
             / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
         .as_u128();
-        self.unpaid_lending_interest_reward +=
-            total_interest_reward - self.lending_interest_reward_debt;
+        self.unpaid_lending_interest_profit +=
+            total_interest_reward - self.lending_interest_profit_debt;
+        self.total_lending_interest_profit += total_interest_reward - self.lending_interest_profit_debt;
 
         current_deposit = current_deposit + amount.clone();
         self.deposits.insert(&self.lend_token_id, &current_deposit);
@@ -87,7 +90,7 @@ impl AccountDeposit {
             * U256::from(acc_interest_per_share.clone())
             / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
         .as_u128();
-        self.lending_interest_reward_debt = total_interest_reward;
+        self.lending_interest_profit_debt = total_interest_reward;
     }
 
     pub fn update_borrowing_interest(&mut self, interest_rate: u64) -> Balance {
@@ -189,21 +192,21 @@ impl AccountDeposit {
     ) -> Balance {
         let deposit_amount = self.get_token_deposit(token_id);
         if token_id.clone() == self.lend_token_id {
-            let unpaid_lending_interest_reward = self.unpaid_lending_interest_reward;
+            let unpaid_lending_interest_profit = self.unpaid_lending_interest_profit;
             require!(
-                amount <= deposit_amount + unpaid_lending_interest_reward.clone(),
+                amount <= deposit_amount + unpaid_lending_interest_profit.clone(),
                 "insufficient amount for withdrawal"
             );
             let mut remain = amount.clone();
-            if remain >= unpaid_lending_interest_reward {
-                self.unpaid_lending_interest_reward = 0;
+            if remain >= unpaid_lending_interest_profit {
+                self.unpaid_lending_interest_profit = 0;
                 remain = remain - amount.clone();
 
                 self.deposits
                     .insert(&self.lend_token_id, &(deposit_amount - remain));
                 return remain;
             } else {
-                self.lending_interest_reward_debt -= remain;
+                self.unpaid_lending_interest_profit -= remain;
                 return 0;
             }
         } else if token_id.clone() == self.collateral_token_id {
