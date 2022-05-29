@@ -103,6 +103,6 @@ impl Contract {
     }
 
     pub fn compute_collateral_value(&self, collateral_amount: &Balance, price: &Price) -> U256 {
-        return U256::from(collateral_amount.clone()) * U256::from(price.multiplier.0) * U256::from(10u128.pow(price.decimals as u32));
+        return U256::from(collateral_amount.clone()) * U256::from(price.multiplier.0) / U256::from(10u128.pow(price.decimals as u32));
     }
 }
