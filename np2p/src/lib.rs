@@ -310,6 +310,53 @@ impl Contract {
     }
 
     #[payable]
+    pub fn create_new_pool(
+        &mut self,
+        lend_token_id: AssetId,
+        collateral_token_id: AssetId,
+        min_cr: u64,
+        max_utilization: u64,
+        min_lend_token_deposit: U128,
+        min_lend_token_borrow: U128,
+        fixed_interest_rate: u64,
+        liquidation_bonus: u64,
+    ) {
+        let attached_deposit = env::attached_deposit();
+        require!(attached_deposit >= self.pool_creation_fee, "!pool_creation_fee");
+        self.abort_if_unsupported_token(lend_token_id.clone());
+        self.abort_if_unsupported_token(collateral_token_id.clone());
+
+        let account_id = env::predecessor_account_id();
+        let prev_storage = env::storage_usage();
+        let pool_id = self.pools.len() as u32;
+        let mut pool = Pool::new(pool_id.clone(), account_id.clone(), lend_token_id.clone(), collateral_token_id.clone(), min_cr, max_utilization, min_lend_token_deposit.0, min_lend_token_borrow.0, fixed_interest_rate, liquidation_bonus);
+        pool.register_account(&account_id);
+
+        self.pools.push(pool);
+
+        let mut token_to_list_lend_pools = self
+            .token_to_list_lend_pools
+            .get(&lend_token_id)
+            .unwrap_or(vec![]);
+        token_to_list_lend_pools.push(pool_id.clone());
+        self.token_to_list_lend_pools
+            .insert(&lend_token_id, &token_to_list_lend_pools);
+
+        let mut token_to_list_collateral_pools = self
+            .token_to_list_collateral_pools
+            .get(&collateral_token_id)
+            .unwrap_or(vec![]);
+        token_to_list_collateral_pools.push(pool_id.clone());
+        self.token_to_list_collateral_pools
+            .insert(&collateral_token_id, &token_to_list_collateral_pools);
+
+        self.add_to_created_pools_list(&account_id, pool_id.clone());
+        self.add_to_deposit_pools_list(&account_id, pool_id.clone());
+
+        self.verify_storage(&account_id, prev_storage, Some(attached_deposit - self.pool_creation_fee));
+    }
+
+    #[payable]
     pub fn withdraw(&mut self, pool_id: u32, token_id: AssetId, amount: U128) -> Promise {
         let account_id = env::predecessor_account_id();
         assert_one_yocto();
@@ -560,7 +607,10 @@ impl Contract {
             .pools
             .get(pool_id as usize)
             .expect("pool_id out of range");
-        require!(lend_token_id.clone() == pool.lend_token_id, "invalid token lend");
+        require!(
+            lend_token_id.clone() == pool.lend_token_id,
+            "invalid token lend"
+        );
 
         let pool = &mut self.pools[pool_id as usize];
         pool.pay_loan(account_id, pay_amount.0);

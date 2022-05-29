@@ -32,7 +32,7 @@ pub struct Pool {
 }
 
 impl Pool {
-    fn new(
+    pub fn new(
         pool_id: u32,
         owner_id: AccountId,
         lend_token_id: AssetId,
@@ -71,6 +71,9 @@ impl Pool {
     }
 
     pub fn deposit(&mut self, account_id: &AccountId, token_id: &AssetId, amount: Balance) {
+        if token_id.clone() == self.lend_token_id.clone() {
+            require!(amount >= self.min_lend_token_deposit, "lower than min deposit");
+        }
         let mut account_deposit = self.get_account_deposit(account_id);
 
         if token_id.clone() == self.lend_token_id {
@@ -112,6 +115,7 @@ impl Pool {
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
     ) {
+        require!(amount.clone() >= self.min_lend_token_borrow, "lower than min borrow");
         //pub fn borrow(&mut self, account_id: &AccountId, amount: &Balance, contract: &mut Contract) {
         require!(
             self.lend_token_id == lend_token_info.token_id
