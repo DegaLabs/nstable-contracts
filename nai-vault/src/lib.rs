@@ -427,6 +427,72 @@ impl Contract {
     }
 
     #[payable]
+    pub fn borrow(
+        &mut self,
+        collateral_token_id: &AccountId,
+        borrow_amount: Balance,
+        to: AccountId,
+    ) {
+        assert_one_yocto();
+        // Select target account.
+        let account = to.clone();
+
+        self.abort_if_pause();
+        self.abort_if_blacklisted(account.clone());
+        require!(
+            self.is_token_supported(collateral_token_id),
+            "unsupported token"
+        );
+
+        let near = env::attached_deposit();
+        let prev_usage = env::storage_usage();
+
+        let borrowable = self.compute_max_borrowable_for_account(
+            account.clone(),
+            collateral_token_id.clone(),
+            U128(0),
+        );
+        let mut borrowable = borrowable.0;
+
+        require!(
+            borrow_amount <= borrowable,
+            format!("cannot borrow more than {}", borrowable)
+        );
+
+        borrowable = borrow_amount;
+        //assert_min_borrow
+        {
+            let min_borrow = self.get_min_borrow();
+            let account_deposit = self.get_account_info(account.clone());
+            let vault = account_deposit.get_vault(collateral_token_id.clone());
+            require!(
+                min_borrow.0 <= vault.borrowed.0 + borrowable,
+                "borrow too little"
+            );
+        }
+
+        let storage_used = env::storage_usage() - prev_usage;
+
+        let mut account_deposit = self.get_account_info(account.clone());
+
+        account_deposit.storage_usage += storage_used;
+        account_deposit.near_amount = U128(account_deposit.near_amount.0 + near);
+        self.accounts.insert(&account, &account_deposit);
+
+        let (actual_received, _) = self.internal_mint(account.clone(), borrowable.clone());
+
+        self.finish_borrow(
+            collateral_token_id.clone(),
+            account.clone(),
+            borrowable,
+            actual_received,
+        );
+        self.assert_storage_usage(&account);
+        self.assert_collateral_ratio_valid(&account, &collateral_token_id);
+    }
+
+
+    #[payable]
     pub fn withdraw_collateral(&mut self, collateral_token_id: AccountId, withdraw_amount: U128) {
         assert_one_yocto();
         require!(withdraw_amount.0 > 0, "withdraw_amount > 0");
@@ -799,71 +865,6 @@ impl Contract {
             "{}",
             "collateral ratio after borrow too low"
         );
-    }
-
-    pub fn borrow(
-        &mut self,
-        collateral_token_id: &AccountId,
-        collateral_amount: Balance,
-        borrow_amount: Balance,
-        to: AccountId,
-    ) {
-        // Select target account.
-        let account = to.clone();
-
-        self.abort_if_pause();
-        self.abort_if_blacklisted(account.clone());
-        require!(
-            self.is_token_supported(collateral_token_id),
-            "unsupported token"
-        );
-
-        let near = env::attached_deposit();
-        let prev_usage = env::storage_usage();
-
-        let borrowable = self.compute_max_borrowable_for_account(
-            account.clone(),
-            collateral_token_id.clone(),
-            U128(collateral_amount),
-        );
-        let mut borrowable = borrowable.0;
-
-        require!(
-            borrow_amount <= borrowable,
-            format!("cannot borrow more than {}", borrowable)
-        );
-
-        borrowable = borrow_amount;
-        self.deposit_to_vault(collateral_token_id, &collateral_amount, &account);
-        //assert_min_borrow
-        {
-            let min_borrow = self.get_min_borrow();
-            let account_deposit = self.get_account_info(account.clone());
-            let vault = account_deposit.get_vault(collateral_token_id.clone());
-            require!(
-                min_borrow.0 <= vault.borrowed.0 + borrowable,
-                "borrow too little"
-            );
-        }
-
-        let storage_used = env::storage_usage() - prev_usage;
-
-        let mut account_deposit = self.get_account_info(account.clone());
-
-        account_deposit.storage_usage += storage_used;
-        account_deposit.near_amount = U128(account_deposit.near_amount.0 + near);
-        self.accounts.insert(&account, &account_deposit);
-
-        let (actual_received, _) = self.internal_mint(account.clone(), borrowable.clone());
-
-        self.finish_borrow(
-            collateral_token_id.clone(),
-            account.clone(),
-            borrowable,
-            actual_received,
-        );
-        self.assert_storage_usage(&account);
-        self.assert_collateral_ratio_valid(&account, &collateral_token_id);
     }
 
     pub fn finish_borrow(

@@ -1,6 +1,6 @@
 use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{serde_json, PromiseOrValue};
+use near_sdk::{PromiseOrValue};
 
 use crate::*;
 
@@ -38,20 +38,20 @@ impl FungibleTokenReceiver for Contract {
             self.deposit_to_vault(&token_in, &amount.0, &sender_id);
             PromiseOrValue::Value(U128(0))
         } else {
-            // instant swap
-            let message =
-                serde_json::from_str::<TokenReceiverMessage>(&msg).expect("wrong message format");
-            match message {
-                TokenReceiverMessage::Borrow {
-                    borrow_amount,
-                    receiver_id,
-                } => {
-                    let receiver_id = receiver_id.unwrap_or(sender_id.clone());
-                    self.borrow(&token_in, amount.0, borrow_amount.0, receiver_id);
-                    // Even if send tokens fails, we don't return funds back to sender.
-                    PromiseOrValue::Value(U128(0))
-                }
-            }
+            env::panic_str("unsupported operation");
+            // let message =
+            //     serde_json::from_str::<TokenReceiverMessage>(&msg).expect("wrong message format");
+            // match message {
+            //     TokenReceiverMessage::Borrow {
+            //         borrow_amount,
+            //         receiver_id,
+            //     } => {
+            //         let receiver_id = receiver_id.unwrap_or(sender_id.clone());
+            //         self.borrow(&token_in, amount.0, borrow_amount.0, receiver_id);
+            //         // Even if send tokens fails, we don't return funds back to sender.
+            //         PromiseOrValue::Value(U128(0))
+            //     }
+            // }
         }
     }
 }
