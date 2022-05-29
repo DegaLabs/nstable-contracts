@@ -10,6 +10,7 @@ members = [
   "./nstable-farming-v2",
   "./staking",
   "./npad",
+  "./np2p"
 ]
 
 [profile.release]

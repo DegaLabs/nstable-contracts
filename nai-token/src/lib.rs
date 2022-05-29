@@ -29,6 +29,7 @@ use near_sdk::{
 
 const MINT_FEE_DIVISOR: u128 = 10000;
 
+
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct Contract {
