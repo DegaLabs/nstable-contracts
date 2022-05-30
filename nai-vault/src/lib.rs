@@ -430,12 +430,12 @@ impl Contract {
     pub fn borrow(
         &mut self,
         collateral_token_id: &AccountId,
-        borrow_amount: Balance,
-        to: AccountId,
+        borrow_amount: U128
     ) {
         assert_one_yocto();
         // Select target account.
-        let account = to.clone();
+        let borrow_amount = borrow_amount.0;
+        let account = env::predecessor_account_id();
 
         self.abort_if_pause();
         self.abort_if_blacklisted(account.clone());
