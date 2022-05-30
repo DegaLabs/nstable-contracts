@@ -10,11 +10,11 @@ mod utils;
 mod views;
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{LazyOption, LookupMap, UnorderedMap};
+use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, log, near_bindgen, require, AccountId, Balance, BorshStorageKey, Gas,
+    assert_one_yocto, env, near_bindgen, require, AccountId, Balance, BorshStorageKey,
     PanicOnDefault, Promise, StorageUsage,
 };
 
@@ -28,12 +28,10 @@ use std::fmt::Debug;
 
 use views::U256;
 
-const BORROW_FEE_DIVISOR: u128 = 10000;
 const COLLATERAL_RATIO_DIVISOR: u128 = 10000;
 const UTILIZATION_DIVISOR: u128 = 10000;
 const INTEREST_RATE_DIVISOR: u128 = 10000;
 const ACC_INTEREST_PER_SHARE_MULTIPLIER: u128 = 10u128.pow(8 as u32);
-const LOW_POSITION_VALUE_NAI: u128 = 20 * (10u128.pow(18 as u32));
 const SECONDS_PER_YEAR: u128 = 365 * 86400;
 const LIQUIDATION_BONUS_DIVISOR: u128 = 10000;
 

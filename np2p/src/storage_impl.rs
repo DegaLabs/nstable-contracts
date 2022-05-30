@@ -53,7 +53,6 @@ impl Contract {
             })
         } else {
             None
-
         }
     }
 
@@ -135,10 +134,9 @@ impl StorageManagement for Contract {
                 _ => storage_balance,
             }
         } else {
-            env::panic_str(format!(
-                "The account {} is not registered",
-                &predecessor_account_id
-            ).as_str());
+            env::panic_str(
+                format!("The account {} is not registered", &predecessor_account_id).as_str(),
+            );
         }
     }
 
@@ -166,23 +164,16 @@ impl StorageManagement for Contract {
 impl Contract {
     pub fn storage_balance_bounds_for_account(
         &self,
-        account_id: AccountId,
+        _account_id: AccountId,
     ) -> StorageBalanceBounds {
-        // let required_storage_balance = Balance::from(
-        //     self.base_storage_usage
-        //         + self.storage_usage_per_vault * (self.get_token_count() as u64),
-        // ) * env::storage_byte_cost();
-        // let deposit_account = self.get_account_info(account_id.clone());
-
-        // let near_deposited = deposit_account.near_amount;
-
-        // let mut min: Balance = 0;
-        // if near_deposited.0 < required_storage_balance {
-        //     min = required_storage_balance - near_deposited.0;
-        // }
+        let required_storage_balance = Balance::from(
+            self.storage_usage_add_pool + self.storage_usage_add_pool * (self.pools.len() as u64),
+        ) * env::storage_byte_cost();
+        let min = Balance::from(self.storage_usage_add_pool + self.storage_usage_add_pool)
+            * env::storage_byte_cost();
         StorageBalanceBounds {
-            min: 0u128.into(),
-            max: Some(0u128.into()),
+            min: U128(min),
+            max: Some(U128(required_storage_balance)),
         }
     }
 }

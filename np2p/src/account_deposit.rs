@@ -1,11 +1,6 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{LazyOption, LookupMap, UnorderedMap};
-use near_sdk::json_types::{U128, U64};
-use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{
-    assert_one_yocto, env, log, near_bindgen, require, AccountId, Balance, BorshStorageKey, Gas,
-    PanicOnDefault, Promise, StorageUsage,
-};
+use near_sdk::collections::UnorderedMap;
+use near_sdk::{env, require, AccountId, Balance, PanicOnDefault};
 
 use crate::*;
 use utils::*;
@@ -168,15 +163,17 @@ impl AccountDeposit {
         interest_rate: u64,
         min_cr: u64,
     ) {
-        let cr = compute_cr(
-            self.get_token_deposit(&self.collateral_token_id),
-            collateral_token_info.decimals,
-            collateral_token_price,
-            self.borrow_amount + self.get_interest_owed(interest_rate),
-            lend_token_price,
-            lend_token_info.decimals,
-        );
-        assert!(min_cr <= cr, "{}", "collateral ratio after borrow too low");
+        if self.borrow_amount > 0 {
+            let cr = compute_cr(
+                self.get_token_deposit(&self.collateral_token_id),
+                collateral_token_info.decimals,
+                collateral_token_price,
+                self.borrow_amount + self.get_interest_owed(interest_rate),
+                lend_token_price,
+                lend_token_info.decimals,
+            );
+            assert!(min_cr <= cr, "{}", "collateral ratio after borrow too low");
+        }
     }
 
     pub fn compute_current_cr(
@@ -325,13 +322,15 @@ impl AccountDeposit {
     pub fn reduce_collateral(&mut self, amount: Balance) {
         let collateral_amount = self.get_token_deposit(&self.collateral_token_id);
         require!(amount <= collateral_amount, "!reduce_collateral");
-        self.deposits.insert(&self.collateral_token_id, &(collateral_amount - amount));
+        self.deposits
+            .insert(&self.collateral_token_id, &(collateral_amount - amount));
     }
 
     pub fn reduce_lend_token_deposit(&mut self, amount: Balance) {
         let lend_token_deposit = self.get_token_deposit(&self.lend_token_id);
         require!(amount <= lend_token_deposit, "!reduce_lend_token_deposit");
-        self.deposits.insert(&self.lend_token_id, &(lend_token_deposit - amount));
+        self.deposits
+            .insert(&self.lend_token_id, &(lend_token_deposit - amount));
     }
 
     pub fn get_token_deposit(&self, token_id: &AccountId) -> Balance {

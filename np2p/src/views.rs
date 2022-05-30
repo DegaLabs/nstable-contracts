@@ -1,4 +1,3 @@
-use crate::oracle::Price;
 use crate::*;
 use near_sdk::{near_bindgen, AccountId};
 uint::construct_uint!(

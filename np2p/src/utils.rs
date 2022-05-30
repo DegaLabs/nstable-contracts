@@ -1,5 +1,5 @@
 use crate::*;
-use near_sdk::{ext_contract, log, AccountId, Balance, Gas, PromiseResult};
+use near_sdk::{ext_contract, AccountId, Balance, Gas, PromiseResult};
 
 /// Amount of gas for fungible token transfers, increased to 20T to support AS token contracts.
 pub const GAS_FOR_FT_TRANSFER: Gas = Gas(20_000_000_000_000);
