@@ -426,6 +426,13 @@ impl Contract {
         }
     }
 
+    pub fn update_cr(&mut self, collateral_token_id: AccountId, cr: u64) {
+        self.assert_governance();
+        let mut token_info = self.get_token_info(collateral_token_id.clone());
+        token_info.collateral_ratio = cr;
+        self.supported_tokens.insert(&collateral_token_id, &token_info);
+    }
+
     #[payable]
     pub fn borrow(
         &mut self,
