@@ -81,7 +81,8 @@ impl AccountDeposit {
         .as_u128();
         self.unpaid_lending_interest_profit +=
             total_interest_reward - self.lending_interest_profit_debt;
-        self.total_lending_interest_profit += total_interest_reward - self.lending_interest_profit_debt;
+        self.total_lending_interest_profit +=
+            total_interest_reward - self.lending_interest_profit_debt;
 
         current_deposit = current_deposit + amount.clone();
         self.deposits.insert(&self.lend_token_id, &current_deposit);
@@ -178,6 +179,25 @@ impl AccountDeposit {
         assert!(min_cr <= cr, "{}", "collateral ratio after borrow too low");
     }
 
+    pub fn compute_current_cr(
+        &self,
+        lend_token_info: &TokenInfo,
+        lend_token_price: &Price,
+        collateral_token_info: &TokenInfo,
+        collateral_token_price: &Price,
+        interest_rate: u64,
+    ) -> u64 {
+        let cr = compute_cr(
+            self.get_token_deposit(&self.collateral_token_id),
+            collateral_token_info.decimals,
+            collateral_token_price,
+            self.borrow_amount + self.get_interest_owed(interest_rate),
+            lend_token_price,
+            lend_token_info.decimals,
+        );
+        cr
+    }
+
     //return the amount withdrawn from the lend deposit token or collateral token, excluding interest if have
     pub fn withdraw_from_account(
         &mut self,
@@ -268,7 +288,11 @@ impl AccountDeposit {
         amount.clone()
     }
 
-    pub fn pay_loan(&mut self, pay_amount: Balance, acc_interest_per_share: Balance) -> (Balance, Balance) {
+    pub fn pay_loan(
+        &mut self,
+        pay_amount: Balance,
+        acc_interest_per_share: Balance,
+    ) -> (Balance, Balance) {
         let mut actual_borrow_paid = self.borrow_amount.clone();
         let mut remain = pay_amount.clone();
         if self.unpaid_borrowing_interest > 0 {
@@ -296,6 +320,18 @@ impl AccountDeposit {
         }
 
         (actual_borrow_paid, remain)
+    }
+
+    pub fn reduce_collateral(&mut self, amount: Balance) {
+        let collateral_amount = self.get_token_deposit(&self.collateral_token_id);
+        require!(amount <= collateral_amount, "!reduce_collateral");
+        self.deposits.insert(&self.collateral_token_id, &(collateral_amount - amount));
+    }
+
+    pub fn reduce_lend_token_deposit(&mut self, amount: Balance) {
+        let lend_token_deposit = self.get_token_deposit(&self.lend_token_id);
+        require!(amount <= lend_token_deposit, "!reduce_lend_token_deposit");
+        self.deposits.insert(&self.lend_token_id, &(lend_token_deposit - amount));
     }
 
     pub fn get_token_deposit(&self, token_id: &AccountId) -> Balance {
@@ -340,5 +376,9 @@ impl AccountDeposit {
             return 0u128;
         }
         max_borrowable - owed
+    }
+
+    pub fn get_owned_lend_token_amount(&self) -> Balance {
+        self.borrow_amount + self.unpaid_borrowing_interest
     }
 }

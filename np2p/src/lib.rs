@@ -35,6 +35,7 @@ const INTEREST_RATE_DIVISOR: u128 = 10000;
 const ACC_INTEREST_PER_SHARE_MULTIPLIER: u128 = 10u128.pow(8 as u32);
 const LOW_POSITION_VALUE_NAI: u128 = 20 * (10u128.pow(18 as u32));
 const SECONDS_PER_YEAR: u128 = 365 * 86400;
+const LIQUIDATION_BONUS_DIVISOR: u128 = 10000;
 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
@@ -322,15 +323,30 @@ impl Contract {
         liquidation_bonus: u64,
     ) {
         let attached_deposit = env::attached_deposit();
-        require!(attached_deposit >= self.pool_creation_fee, "!pool_creation_fee");
+        require!(
+            attached_deposit >= self.pool_creation_fee,
+            "!pool_creation_fee"
+        );
         self.abort_if_unsupported_token(lend_token_id.clone());
         self.abort_if_unsupported_token(collateral_token_id.clone());
 
         let account_id = env::predecessor_account_id();
         let prev_storage = env::storage_usage();
         let pool_id = self.pools.len() as u32;
-        let mut pool = Pool::new(pool_id.clone(), account_id.clone(), lend_token_id.clone(), collateral_token_id.clone(), min_cr, max_utilization, min_lend_token_deposit.0, min_lend_token_borrow.0, fixed_interest_rate, liquidation_bonus);
+        let mut pool = Pool::new(
+            pool_id.clone(),
+            account_id.clone(),
+            lend_token_id.clone(),
+            collateral_token_id.clone(),
+            min_cr,
+            max_utilization,
+            min_lend_token_deposit.0,
+            min_lend_token_borrow.0,
+            fixed_interest_rate,
+            liquidation_bonus,
+        );
         pool.register_account(&account_id);
+        pool.register_account(&self.foundation_id);
 
         self.pools.push(pool);
 
@@ -353,7 +369,11 @@ impl Contract {
         self.add_to_created_pools_list(&account_id, pool_id.clone());
         self.add_to_deposit_pools_list(&account_id, pool_id.clone());
 
-        self.verify_storage(&account_id, prev_storage, Some(attached_deposit - self.pool_creation_fee));
+        self.verify_storage(
+            &account_id,
+            prev_storage,
+            Some(attached_deposit - self.pool_creation_fee),
+        );
     }
 
     #[payable]
@@ -389,163 +409,36 @@ impl Contract {
         self.internal_send_tokens(pool_id, &token_id, &account_id, amount.0)
     }
 
-    // #[payable]
-    // pub fn liquidate(
-    //     &mut self,
-    //     account_id: AccountId,
-    //     collateral_token_id: AccountId,
-    //     nai_amount: U128,
-    // ) {
-    //     let prev_usage = env::storage_usage();
-    //     let maker_id = env::predecessor_account_id();
+    #[payable]
+    pub fn liquidate(
+        &mut self,
+        pool_id: u32,
+        liquidated_account_id: AccountId,
+        liquidated_borrow_amount: U128,
+    ) {
+        let prev_usage = env::storage_usage();
+        let liquidator_account_id = env::predecessor_account_id();
+        self.abort_if_pause();
+        self.abort_if_blacklisted(liquidator_account_id.clone());
+        self.abort_if_pool_id_valid(pool_id.clone() as usize);
 
-    //     require!(nai_amount.0 > 0, "nai_amount > 0");
-    //     require!(
-    //         self.token.ft_balance_of(maker_id.clone()).0 >= nai_amount.0,
-    //         "maker insufficient balance"
-    //     );
+        let pool = self
+            .pools
+            .get(pool_id as usize)
+            .expect("pool_id out of range");
+        let lend_token_info = self.get_token_info(pool.lend_token_id.clone());
+        let lend_token_price = self.price_data.price(&pool.lend_token_id.clone());
 
-    //     //account must under collateral_ratio
-    //     let mut account_deposit = self.get_account_info(account_id.clone());
-    //     let mut vault = account_deposit.get_vault(collateral_token_id.clone());
-    //     let vault_index = account_deposit.get_vault_index(collateral_token_id.clone());
+        let collateral_token_info = self.get_token_info(pool.collateral_token_id.clone());
+        let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
+        
+        {
+            let pool = &mut self.pools[pool_id as usize];
+            pool.liquidate(liquidated_account_id.clone(), liquidated_borrow_amount.0, liquidator_account_id.clone(), &lend_token_info, &lend_token_price, &collateral_token_info, &collateral_token_price, self.foundation_id.clone());
+        }
 
-    //     require!(nai_amount.0 <= vault.borrowed.0, "nai_amount > 0");
-
-    //     let vault_before = vault.clone();
-    //     require!(vault.deposited.0 > 0, "no deposited");
-
-    //     let (account_collateral_ratio, collateral_ratio) = self.compute_new_ratio_after_borrow(
-    //         account_id.clone(),
-    //         collateral_token_id.clone(),
-    //         U128(0),
-    //         U128(0),
-    //     );
-    //     require!(
-    //         account_collateral_ratio < collateral_ratio,
-    //         "account must be under collateral ratio"
-    //     );
-
-    //     let mut token_info = self.get_token_info(collateral_token_id.clone());
-    //     let price = self.price_data.price(&collateral_token_id);
-    //     let multiplier: u128 = price.multiplier.0
-    //         * (BORROW_FEE_DIVISOR - (token_info.liquidation_price_fee as u128))
-    //         / BORROW_FEE_DIVISOR;
-    //     let price_after_liquidation_price_fee = Price {
-    //         decimals: price.decimals,
-    //         multiplier: U128(multiplier),
-    //     };
-
-    //     let liquidate_value = (U256::from(nai_amount.0)
-    //         * U256::from(10u128.pow(token_info.decimals as u32)))
-    //         / (U256::from(10u128.pow(18 as u32)));
-    //     let liquidate_collateral = liquidate_value
-    //         * U256::from(10u128.pow(price_after_liquidation_price_fee.decimals as u32))
-    //         / U256::from(price_after_liquidation_price_fee.multiplier.0);
-    //     let mut liquidate_collateral = liquidate_collateral.as_u128();
-
-    //     //insufficient deposit of account for liquidation should we liquidate all?
-    //     //TODO: the system should reward NST token to users who provide liquidation
-    //     require!(
-    //         liquidate_collateral <= vault.deposited.0,
-    //         "insufficient deposit of account for liquidation"
-    //     );
-    //     vault.deposited = U128(vault.deposited.0 - liquidate_collateral.clone());
-    //     vault.borrowed = U128(vault.borrowed.0 - nai_amount.0);
-
-    //     if vault.borrowed.0 == 0 {
-    //         //liquidate all if the remaining deposited value <= LOW_POSITION_VALUE_NAI
-    //         let remain_collateral_value = self.compute_collateral_value(&vault.deposited.0, &price);
-    //         let remain_collateral_value_in_nai = remain_collateral_value * U256::from(10u128.pow(18 as u32))
-    //             / U256::from(10u128.pow(token_info.decimals as u32));
-    //         require!(
-    //             remain_collateral_value_in_nai.as_u128() <= LOW_POSITION_VALUE_NAI,
-    //             "remaining collateral must be  below 20$ to liquidate all"
-    //         );
-    //         liquidate_collateral = liquidate_collateral + vault.deposited.0;
-    //         vault.deposited = U128(0);
-    //     }
-    //     token_info.total_deposit = U128(token_info.total_deposit.0 - liquidate_collateral);
-    //     token_info.total_borrowed = U128(token_info.total_borrowed.0 - nai_amount.0);
-
-    //     self.supported_tokens
-    //         .insert(&collateral_token_id, &token_info);
-
-    //     self.total_nai_borrowed = U128(self.total_nai_borrowed.0 - nai_amount.0);
-    //     //burn nai
-    //     self.token.internal_withdraw(&maker_id, nai_amount.0);
-
-    //     //compute liquidated collateral amount to cover NAI burnt by maker
-    //     let liquidate_collateral_to_cover_nai_burnt = liquidate_value
-    //     * U256::from(10u128.pow(price.decimals as u32))
-    //     / U256::from(price.multiplier.0);
-    //     let liquidate_collateral_to_cover_nai_burnt = liquidate_collateral_to_cover_nai_burnt.as_u128();
-    //     let remain_penalty_in_collateral = liquidate_collateral - liquidate_collateral_to_cover_nai_burnt;
-
-    //     let liquidate_collateral_to_treasury = remain_penalty_in_collateral * 50 / 100;
-    //     let liquidate_collateral_to_maker = liquidate_collateral - liquidate_collateral_to_treasury;
-
-    //     //deposit to maker & foundation account
-    //     self.deposit_to_vault(
-    //         &collateral_token_id,
-    //         &liquidate_collateral_to_treasury,
-    //         &self.foundation_id.clone(),
-    //     );
-    //     self.deposit_to_vault(
-    //         &collateral_token_id,
-    //         &liquidate_collateral_to_maker,
-    //         &maker_id,
-    //     );
-
-    //     //save vault of account_id
-    //     account_deposit.vaults[vault_index] = vault.clone();
-    //     self.accounts.insert(&account_id, &account_deposit);
-
-    //     if vault.borrowed.0 > 0 {
-    //         //collateral ratio must less than min
-    //         let account_collateral_ratio = self.internal_compute_collateral_ratio(
-    //             &collateral_token_id,
-    //             vault.deposited.0,
-    //             vault.borrowed.0,
-    //         );
-
-    //         require!(
-    //             account_collateral_ratio <= collateral_ratio,
-    //             "invalid collateral ratio after liquidation"
-    //         );
-    //     }
-
-    //     let liquidaion_history = Liquidation {
-    //         owner_id: account_id.clone(),
-    //         maker_id: maker_id.clone(),
-    //         token_id: collateral_token_id.clone(),
-    //         collateral_amount_before: vault_before.deposited,
-    //         collateral_amount_after: vault.deposited,
-    //         borrowed_before: vault_before.borrowed,
-    //         borrowed_after: vault.borrowed,
-    //         timestamp_sec: env::block_timestamp_ms() / 1000,
-    //         nai_burnt: nai_amount,
-    //         maker_collateral_amount_received: U128(liquidate_collateral_to_maker),
-    //         treasury_collateral_amount_received: U128(liquidate_collateral_to_treasury),
-    //         liquidation_price: price_after_liquidation_price_fee, //price with liquidation fee
-    //         price: price,
-    //     };
-    //     self.liquidation_history.push(liquidaion_history);
-
-    //     let storage_cost = self.storage_cost(prev_usage);
-
-    //     let refund = env::attached_deposit().checked_sub(storage_cost).expect(
-    //         format!(
-    //             "ERR_STORAGE_DEPOSIT need {}, attatched {}",
-    //             storage_cost,
-    //             env::attached_deposit()
-    //         )
-    //         .as_str(),
-    //     );
-    //     if refund > 0 {
-    //         Promise::new(env::predecessor_account_id()).transfer(refund);
-    //     }
-    // }
+        self.verify_storage(&liquidator_account_id, prev_usage, Some(env::attached_deposit()));
+    }
 
     pub fn contract_status(&self) -> ContractStatus {
         self.status.clone()
@@ -679,90 +572,6 @@ impl Contract {
             self.borrow_pools.insert(account_id, &borrow_pools);
         }
     }
-
-    // fn internal_unwrap_account_or_revert(&self, account_id: &AccountId) -> AccountDeposit {
-    //     match self.accounts.get(account_id) {
-    //         Some(account_deposit) => account_deposit,
-    //         None => {
-    //             env::panic_str(format!("The account {} is not registered", &account_id).as_str())
-    //         }
-    //     }
-    // }
-
-    // pub fn internal_register_account(
-    //     &mut self,
-    //     account_id: &AccountId,
-    //     amount: &Balance,
-    // ) -> Balance {
-    //     let init_storage = env::storage_usage();
-
-    //     if !self.token.accounts.contains_key(account_id) {
-    //         self.token.accounts.insert(account_id, &0u128);
-    //     }
-
-    //     if !self.accounts.contains_key(account_id) {
-    //         let deposit_account = AccountDeposit {
-    //             vaults: vec![],
-    //             near_amount: U128(amount.clone()),
-    //             storage_usage: 0,
-    //         };
-    //         self.accounts.insert(account_id, &deposit_account);
-    //     } else {
-    //         let mut deposit_account = self.get_account_info(account_id.clone());
-    //         deposit_account.near_amount = U128(deposit_account.near_amount.0 + amount);
-    //         self.accounts.insert(account_id, &deposit_account);
-    //     }
-
-    //     //insert all vaults, even empty
-    //     let mut deposit_account = self.get_account_info(account_id.clone());
-    //     if deposit_account.vaults.len() < self.token_list.len() {
-    //         let mut i = deposit_account.vaults.len();
-    //         let token_count = self.token_list.len();
-    //         while i < token_count {
-    //             let token_id = self.token_list[i].clone();
-    //             let vault = Vault::new(&account_id.clone(), &token_id.clone());
-    //             deposit_account.add_vault(&vault);
-    //             i = i + 1;
-    //         }
-    //     }
-
-    //     let storage_used = env::storage_usage() - init_storage;
-    //     deposit_account.storage_usage += storage_used;
-    //     self.accounts.insert(account_id, &deposit_account);
-    //     self.assert_storage_usage(account_id);
-
-    //     self.storage_available(account_id.clone()).0
-    // }
-
-    // fn deposit_to_vault(
-    //     &mut self,
-    //     collateral_token_id: &AccountId,
-    //     collateral_amount: &Balance,
-    //     account_id: &AccountId,
-    // ) {
-    //     let mut deposit_account = self.internal_unwrap_account_or_revert(account_id);
-    //     //find the vault for collateral token
-    //     let length = deposit_account.vaults.len();
-    //     let i = deposit_account.get_vault_index(collateral_token_id.clone());
-    //     if i < length {
-    //         let mut vault = deposit_account.vaults[i].clone();
-    //         vault.deposited = U128(vault.deposited.0 + collateral_amount.clone());
-    //         vault.last_deposit = U128(collateral_amount.clone());
-    //         deposit_account.vaults[i] = vault;
-    //         self.accounts.insert(&account_id, &deposit_account);
-    //     } else {
-    //         let mut vault = Vault::new(&account_id, &collateral_token_id);
-    //         vault.deposited = U128(vault.deposited.0 + collateral_amount.clone());
-    //         vault.last_deposit = U128(collateral_amount.clone());
-    //         deposit_account.add_vault(&vault);
-    //         self.accounts.insert(&account_id, &deposit_account);
-    //     }
-
-    //     let mut token_info = self.supported_tokens.get(collateral_token_id).unwrap();
-    //     token_info.total_deposit = U128(token_info.total_deposit.0 + collateral_amount);
-    //     self.supported_tokens
-    //         .insert(collateral_token_id, &token_info);
-    // }
 }
 
 #[no_mangle]

@@ -60,6 +60,16 @@ impl Contract {
         let storage_account = self.get_storage_account(account_id.clone());
         U128(storage_account.storage_usage as u128 * env::storage_byte_cost())
     }
+
+    pub fn compute_current_cr(&self, pool_id: u32, account_id: AccountId) -> u64 {
+        let pool = self.pools.get(pool_id as usize).expect("pool_id out of range");
+        let lend_token_info = self.get_token_info(pool.lend_token_id.clone());
+        let lend_token_price = self.price_data.price(&pool.lend_token_id.clone());
+
+        let collateral_token_info = self.get_token_info(pool.collateral_token_id.clone());
+        let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
+        pool.compute_current_cr(account_id, &lend_token_info, &lend_token_price, &collateral_token_info, &collateral_token_price)
+    }
 }
 
 impl Contract {
