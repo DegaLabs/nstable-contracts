@@ -20,6 +20,10 @@ pub struct BorrowInfo {
     collateral_token_price: U128,
     collateral_token_price_decimal: u8,
     collateral_value: U128,
+    liquidation_price: Price,
+    max_borrowable: U128,
+    liquidation_fee: u64,
+    dust_limit: U128
 }
 
 #[near_bindgen]
@@ -115,12 +119,22 @@ impl Contract {
         let deposit_account = self.get_account_info(account_id.clone());
         let mut ret = Vec::with_capacity(deposit_account.vaults.len());
         for vault in &deposit_account.vaults {
+            if vault.deposited.0 == 0 {
+                continue;
+            }
             let token_info = self.get_token_info(vault.token_id.clone());
             let price = self.price_data.price(&vault.token_id);
+            if price.multiplier.0 == 0 {
+                continue;
+            }
             let collateral_value = self.compute_collateral_value(&vault.deposited.0, &price);
             let mut current_collateral_ratio = 0 as u64;
             if vault.borrowed.0 > 0 {
-                current_collateral_ratio = self.compute_cr(&collateral_value, &vault.borrowed.0, token_info.decimals.clone());
+                current_collateral_ratio = self.compute_cr(
+                    &collateral_value,
+                    &vault.borrowed.0,
+                    token_info.decimals.clone(),
+                );
             }
             let b = BorrowInfo {
                 owner_id: account_id.clone(),
@@ -135,10 +149,77 @@ impl Contract {
                 collateral_token_price_decimal: price.decimals,
                 collateral_ratio: token_info.collateral_ratio,
                 collateral_value: U128(collateral_value.as_u128()),
+                liquidation_price: self.compute_liquidation_price(
+                    account_id.clone(),
+                    vault.token_id.clone(),
+                    None,
+                    None,
+                ),
+                max_borrowable: self.compute_max_borrowable_for_account(
+                    account_id.clone(),
+                    vault.token_id.clone(),
+                    U128(0),
+                ),
+                liquidation_fee: token_info.liquidation_price_fee,
+                dust_limit: self.get_min_borrow()
             };
             ret.push(b);
         }
         ret
+    }
+
+    pub fn get_current_borrow_info_for_collateral(
+        &self,
+        account_id: AccountId,
+        collateral_token_id: AccountId,
+        collateral_amount: Option<U128>,
+        borrow: Option<U128>,
+    ) -> BorrowInfo {
+        let deposit_account = self.get_account_info(account_id.clone());
+        let token_info = self.get_token_info(collateral_token_id.clone());
+        let price = self.price_data.price(&collateral_token_id);
+        let vault = deposit_account.get_vault(collateral_token_id.clone());
+        let collateral_amount = collateral_amount.unwrap_or(U128(0));
+        let borrow = borrow.unwrap_or(U128(0));
+
+        let collateral_value = self.compute_collateral_value(&(vault.deposited.0 + collateral_amount.0), &price);
+        let mut current_collateral_ratio = 0 as u64;
+        if vault.borrowed.0 + borrow.0 > 0 {
+            current_collateral_ratio = self.compute_cr(
+                &collateral_value,
+                &(vault.borrowed.0 + borrow.0),
+                token_info.decimals.clone(),
+            );
+        }
+        let b = BorrowInfo {
+            owner_id: account_id.clone(),
+            token_id: vault.token_id.clone(),
+            deposited: U128(vault.deposited.0 + collateral_amount.0),
+            decimals: token_info.decimals,
+            borrowed: U128(vault.borrowed.0 + borrow.0),
+            last_deposit: vault.last_deposit,
+            last_borrowed: vault.last_borrowed,
+            current_collateral_ratio: current_collateral_ratio,
+            collateral_token_price: price.multiplier,
+            collateral_token_price_decimal: price.decimals,
+            collateral_ratio: token_info.collateral_ratio,
+            collateral_value: U128(collateral_value.as_u128()),
+            liquidation_price: self.compute_liquidation_price(
+                account_id.clone(),
+                vault.token_id.clone(),
+                Some(collateral_amount),
+                Some(borrow),
+            ),
+            max_borrowable: self.compute_max_borrowable_for_account(
+                account_id.clone(),
+                vault.token_id.clone(),
+                collateral_amount,
+            ),
+            liquidation_fee: token_info.liquidation_price_fee,
+            dust_limit: self.get_min_borrow()
+        };
+
+        b
     }
 
     pub fn compute_collateral_ratio(
@@ -220,7 +301,8 @@ impl Contract {
         let total_deposit = collateral_amount.0 + vault.deposited.0;
         let total_borrow = borrow_amount.0 + vault.borrowed.0;
         let total_borrow_value = U256::from(total_borrow);
-        let min_required_collateral_value = total_borrow_value * token_info.collateral_ratio / COLLATERAL_RATIO_DIVISOR;
+        let min_required_collateral_value =
+            total_borrow_value * token_info.collateral_ratio / COLLATERAL_RATIO_DIVISOR;
 
         let liquidation_price = min_required_collateral_value
             * U256::from(10u128.pow(price.decimals as u32))
@@ -250,7 +332,7 @@ impl Contract {
         }
 
         let price = self.price_data.price(&vault.token_id);
-        let collateral_value =  self.compute_collateral_value(&new_deposit, &price);
+        let collateral_value = self.compute_collateral_value(&new_deposit, &price);
         let new_collateral_ratio = collateral_value
             * U256::from(10u128.pow(18 as u32))
             * U256::from(COLLATERAL_RATIO_DIVISOR)
@@ -273,7 +355,8 @@ impl Contract {
         let token_info = self.get_token_info(collateral_token_id.clone());
         let price = self.price_data.price(&collateral_token_id);
         let collateral_value = self.compute_collateral_value(&collateral_amount, &price);
-        let current_collateral_ratio = self.compute_cr(&collateral_value, &borrowed, token_info.decimals.clone());
+        let current_collateral_ratio =
+            self.compute_cr(&collateral_value, &borrowed, token_info.decimals.clone());
         current_collateral_ratio
     }
 
@@ -298,7 +381,8 @@ impl Contract {
         let borrowable = (collateral_amount_u256 * price) * U256::from(10u128.pow(18))
             / (U256::from(10u128.pow(decimals as u32))
                 * U256::from(10u128.pow(token_decimals as u32)));
-        let max_borrowable = borrowable * U256::from(COLLATERAL_RATIO_DIVISOR as u64) / collateral_ratio;
+        let max_borrowable =
+            borrowable * U256::from(COLLATERAL_RATIO_DIVISOR as u64) / collateral_ratio;
 
         max_borrowable.as_u128()
     }
