@@ -240,10 +240,15 @@ near_contract_standards::impl_fungible_token_core!(Contract, token, on_tokens_bu
 #[near_bindgen]
 impl FungibleTokenMetadataProvider for Contract {
     fn ft_metadata(&self) -> FungibleTokenMetadata {
-        self.metadata.get().unwrap()
+        let mut m = self.metadata.get().unwrap();
+        m.name = TOKEN_NAME.to_string();
+        m
     }
 }
 
+const DATA_IMAGE_SVG_ICON: &str =
+    "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBlbmFibGUtYmFja2dyb3VuZD0ibmV3IDAgMCAzMiAzMiIgdmVyc2lvbj0iMS4xIiB2aWV3Qm94PSIwIDAgMzIgMzIiIHhtbDpzcGFjZT0icHJlc2VydmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxzdHlsZSB0eXBlPSJ0ZXh0L2NzcyI+Cgkuc3Q2e2ZpbGw6I0ZGRkZGRjt9Cgkuc3Q1OXtmaWxsOiM4NjQ3OUY7fQo8L3N0eWxlPgo8Y2lyY2xlIGNsYXNzPSJzdDU5IiBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiLz4KPHBvbHlnb24gY2xhc3M9InN0NiIgcG9pbnRzPSIxNC4wNyAxNS4wNSAxNS4zMyAxNi45NSAxNi42MSAxOC44OSAxOS44MiAyMy43NCAyMi4zNSAyMy43NCAyMi4zNSAxOC44OSAyNC43MyAxOC44OSAyNC43MyAxNi45NSAyMi4zNSAxNi45NSAyMi4zNSAxNS4wNSAyNC43MyAxNS4wNSAyNC43MyAxMy4xMSAyMi4zNSAxMy4xMSAyMi4zNSA4LjI2IDE5LjgyIDguMjYgMTkuODIgMTMuMTEgMTkuODIgMTUuMDUgMTkuODIgMTYuOTUgMTkuODIgMTguODkgMTkuODIgMTkuNzggMTkuMjIgMTguODkgMTcuOTQgMTYuOTUgMTYuNjggMTUuMDUgMTUuNCAxMy4xMSAxMi4xOCA4LjI2IDkuNjUgOC4yNiA5LjY1IDEzLjExIDcuMjcgMTMuMTEgNy4yNyAxNS4wNSA5LjY1IDE1LjA1IDkuNjUgMTYuOTUgNy4yNyAxNi45NSA3LjI3IDE4Ljg5IDkuNjUgMTguODkgOS42NSAyMy43NCAxMi4xOCAyMy43NCAxMi4xOCAxOC44OSAxMi4xOCAxNi45NSAxMi4xOCAxNS4wNSAxMi4xOCAxMy4xMSAxMi4xOCAxMi4yIDEyLjc5IDEzLjExIi8+Cjwvc3ZnPgo=";
+const TOKEN_NAME: &str = "NAI StableCoin";
 #[near_bindgen]
 impl Contract {
     #[init]
@@ -252,7 +257,7 @@ impl Contract {
 
         let metadata = FungibleTokenMetadata {
             spec: FT_METADATA_SPEC.to_string(),
-            name: "nStable Stable Coint".to_string(),
+            name: TOKEN_NAME.to_string(),
             symbol: "NAI".to_string(),
             icon: None,
             reference: None,
@@ -291,6 +296,14 @@ impl Contract {
 
         this.measure_account_storage_usage();
         this
+    }
+
+    pub fn set_icon(&mut self, icon: Option<String>) {
+        self.assert_governance();
+        let icon = icon.unwrap_or(DATA_IMAGE_SVG_ICON.to_string());
+        let mut metadata = self.ft_metadata();
+        metadata.icon = Some(icon);
+        self.metadata.set(&metadata);
     }
 
     // fn on_account_closed(&mut self, account_id: AccountId, balance: Balance) {
@@ -350,12 +363,12 @@ impl Contract {
     #[payable]
     pub fn pay_loan(
         &mut self,
-        account_id: &AccountId,
         collateral_token_id: &AccountId,
         pay_amount: U128,
     ) -> U128 {
         assert_one_yocto();
         //cant pay loan if collateral ratio is under min. users need to deposit more to get ratio go above min ratio
+        let account_id = &env::predecessor_account_id();
         self.assert_collateral_ratio_valid(account_id, collateral_token_id);
         let mut account_deposit = self.get_account_info(account_id.clone());
         let mut vault = account_deposit.get_vault(collateral_token_id.clone());
