@@ -190,7 +190,6 @@ impl StableSwap {
         fees: &Fees,
     ) -> Option<(Balance, Balance)> {
         let n_coins = old_c_amounts.len();
-        
         // Initial invariant
         let d_0 = self.compute_d(old_c_amounts)?;
 
@@ -217,9 +216,7 @@ impl StableSwap {
                 let fee = fees.normalized_trade_fee(n_coins as u32, difference);
                 new_balances[i] = new_balances[i].checked_sub(fee)?;
             }
-
             let d_2 = self.compute_d(&new_balances)?;
-
             // d1 > d2 > d0, 
             // (d2-d0) => mint_shares (charged fee),
             // (d1-d0) => diff_shares (without fee),
@@ -230,12 +227,10 @@ impl StableSwap {
                 .checked_mul(d_2.checked_sub(d_0)?)?
                 .checked_div(d_0)?
                 .as_u128();
-            
             let diff_shares = U256::from(pool_token_supply)
                 .checked_mul(d_1.checked_sub(d_0)?)?
                 .checked_div(d_0)?
                 .as_u128();
-
             Some((mint_shares, diff_shares-mint_shares))
         }
     }

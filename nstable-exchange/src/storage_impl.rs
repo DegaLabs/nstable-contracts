@@ -63,7 +63,8 @@ impl StorageManagement for Contract {
             // TODO: figure out force option logic.
             assert!(
                 account_deposit.tokens.is_empty(),
-                "{}", ERR18_TOKENS_NOT_EMPTY
+                "{}",
+                ERR18_TOKENS_NOT_EMPTY
             );
             self.accounts.remove(&account_id);
             Promise::new(account_id.clone()).transfer(account_deposit.near_amount);
@@ -82,12 +83,9 @@ impl StorageManagement for Contract {
 
     fn storage_balance_of(&self, account_id: ValidAccountId) -> Option<StorageBalance> {
         self.internal_get_account(account_id.as_ref())
-            .map(|account| 
-                { 
-                    StorageBalance {
-                        total: U128(account.near_amount),
-                        available: U128(account.storage_available()),
-                    } 
-                })
+            .map(|account| StorageBalance {
+                total: U128(account.near_amount),
+                available: U128(account.storage_available()),
+            })
     }
 }

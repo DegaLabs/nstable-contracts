@@ -99,6 +99,14 @@ impl StableSwapPool {
         c_amounts
     }
 
+    pub fn c_amounts_to_amounts(&self, c_amounts: &Vec<u128>) ->Vec<u128> {
+        let mut amounts = c_amounts.clone();
+        for (index, _value) in self.token_decimals.iter().enumerate() {
+            amounts[index.clone()] = self.c_amount_to_amount(amounts[index.clone()], index);
+        }
+        amounts
+    }
+
     fn amount_to_c_amount(&self, amount: u128, index: usize) -> u128 {
         let value = self.token_decimals.get(index).unwrap();
         let factor = 10_u128
@@ -107,7 +115,7 @@ impl StableSwapPool {
         amount.checked_mul(factor).unwrap()
     }
 
-    fn c_amount_to_amount(&self, c_amount: u128, index: usize) -> u128 {
+    pub fn c_amount_to_amount(&self, c_amount: u128, index: usize) -> u128 {
         let value = self.token_decimals.get(index).unwrap();
         let factor = 10_u128
                 .checked_pow((TARGET_DECIMAL - value) as u32)
@@ -142,7 +150,7 @@ impl StableSwapPool {
     }
 
     /// Returns token index for given token account_id.
-    fn token_index(&self, token_id: &AccountId) -> usize {
+    pub fn token_index(&self, token_id: &AccountId) -> usize {
         self.token_account_ids
             .iter()
             .position(|id| id == token_id)
@@ -276,9 +284,35 @@ impl StableSwapPool {
         new_shares
     }
 
-    pub fn add_stable_token_to_pool(&mut self, token: &AccountId, decimal: u8) {
+    pub fn add_stable_token_to_pool(&mut self, token: &AccountId, decimal: u8, init_c_amount: Balance) -> Balance {
         assert!(decimal <= MAX_DECIMAL, "{}", ERR60_DECIMAL_ILLEGAL);
         assert!(decimal >= MIN_DECIMAL, "{}", ERR60_DECIMAL_ILLEGAL);
+        assert!(init_c_amount > 0, "{}", ERR111_INVALID_INITIAL_LIQUIDITY);
+
+        let mut index = self.token_account_ids.len();
+        for i in 0..self.token_account_ids.len() {
+            if self.token_account_ids[i].clone() == token.clone() {
+                index = i;
+                break;
+            }
+        }
+
+        if index != self.token_account_ids.len() {
+            //found
+            //check whether there is at least 1 of token in liquidity
+            if self.c_amounts[index] == 0 {
+                self.c_amounts[index] = init_c_amount;
+                return init_c_amount;
+            } else {
+                env::panic("token already exist".as_bytes());
+            }
+        }
+
+        self.token_account_ids.push(token.clone());
+        self.token_decimals.push(decimal);
+        self.c_amounts.push(init_c_amount);
+        self.volumes.push(SwapVolume::default());
+        init_c_amount
     }
 
     pub fn predict_remove_liquidity(

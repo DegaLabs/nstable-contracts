@@ -274,4 +274,22 @@ impl Contract {
         pool.predict_remove_liquidity_by_tokens(&amounts.into_iter().map(|x| x.0).collect(), &AdminFees::new(self.exchange_fee))
             .into()
     }
+
+    pub fn is_share_registered(&self, account_id: AccountId) -> bool {
+        if self.accounts.contains_key(&account_id) {
+            if self.internal_get_account(&account_id).is_some() {
+                let pool = self.pools.get(0).expect(ERR85_NO_POOL);
+                let ret = match pool {
+                    Pool::SimplePool(_) => false, 
+                    Pool::StableSwapPool(pool) => {
+                        pool.shares.contains_key(&account_id)
+                    }
+                };
+                return ret;
+            } else {
+                return false;
+            }
+        }
+        return false;
+    }
 }

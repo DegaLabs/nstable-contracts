@@ -46,11 +46,21 @@ impl Pool {
         }
     }
 
-    pub fn add_stable_token_to_pool(&mut self, token: &AccountId, decimal: u8) {
+    pub fn add_stable_token_to_pool(&mut self, token: &AccountId, decimal: u8, init_c_amount: Balance) -> Balance {
         match self {
             Pool::SimplePool(_) => unimplemented!(),
             Pool::StableSwapPool(pool) => {
-                pool.add_stable_token_to_pool(token, decimal)
+                let c_amount_added = pool.add_stable_token_to_pool(token, decimal, init_c_amount);
+                pool.c_amount_to_amount(c_amount_added, pool.token_index(token))
+            }
+        }
+    }
+
+    pub fn get_amounts(&mut self) -> Vec<u128> {
+        match self {
+            Pool::SimplePool(_) => unimplemented!(),
+            Pool::StableSwapPool(pool) => {
+                pool.get_amounts()
             }
         }
     }

@@ -138,12 +138,16 @@ impl Contract {
         assert_eq!(env::predecessor_account_id(), self.owner_id.clone(), "not contract owner");
         assert_eq!(self.pools.len() as u32, 1, "{}", ERR105_POOL_NOT_INITIALIZED);
         assert_eq!(tokens.len() as u32, decimals.len() as u32, "{}", ERR106_WRONG_INPUT_LENGTH);
-        check_token_duplicates(&tokens);
+        //check_token_duplicates(&tokens);
 
         let mut pool = self.pools.get(0).expect(ERR85_NO_POOL);
 
         for (i, decimal) in decimals.clone().into_iter().enumerate() {
-            pool.add_stable_token_to_pool(tokens[i].as_ref(), decimal);
+            let init_c_amount = 10u128;
+            let amount = pool.add_stable_token_to_pool(tokens[i].as_ref(), decimal, init_c_amount);
+            let mut account_deposit = self.internal_unwrap_account(&env::predecessor_account_id());
+            account_deposit.withdraw(tokens[i].as_ref(), amount);
+            self.internal_save_account(&env::predecessor_account_id(), account_deposit);
         }
 
         self.pools.replace(0, &pool);
@@ -221,7 +225,10 @@ impl Contract {
         let prev_storage = env::storage_usage();
         let sender_id = env::predecessor_account_id();
         let amounts: Vec<u128> = amounts.into_iter().map(|amount| amount.into()).collect();
+
         let mut pool = self.pools.get(pool_id).expect(ERR85_NO_POOL);
+        let mut deposits = self.internal_unwrap_or_default_account(&sender_id);
+        
         // Add amounts given to liquidity first. It will return the balanced amounts.
         let mint_shares = pool.add_stable_liquidity(
             &sender_id,
@@ -229,11 +236,14 @@ impl Contract {
             min_shares.into(),
             AdminFees::new(self.exchange_fee),
         );
-        let mut deposits = self.internal_unwrap_or_default_account(&sender_id);
+
         let tokens = pool.tokens();
+
         // Subtract amounts from deposits. This will fail if there is not enough funds for any of the tokens.
         for i in 0..tokens.len() {
-            deposits.withdraw(&tokens[i], amounts[i]);
+            if amounts[i] > 0 {
+                deposits.withdraw(&tokens[i], amounts[i]);
+            }
         }
         self.internal_save_account(&sender_id, deposits);
         self.pools.replace(pool_id, &pool);
