@@ -10,7 +10,8 @@ members = [
   "./nstable-farming-v2",
   "./staking",
   "./npad",
-  "./np2p"
+  "./np2p",
+  "./ve-nft"
 ]
 
 [profile.release]

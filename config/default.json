@@ -21,7 +21,7 @@
     "testnet": {
       "near": "wrap.testnet",
       "btc": "wbtc.fakes.testnet",
-      "eth": "eth.fakes.testnet",
+      "eth": "weth.fakes.testnet",
       "usdc": "usdc.fakes.testnet"
     },
     "mainnet": {

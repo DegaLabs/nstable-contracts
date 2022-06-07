@@ -319,6 +319,15 @@ impl Contract {
         self.foundation_id = account_id;
     }
 
+    pub fn reset_liquidation_fee(&mut self) {
+        self.assert_governance();
+        for t in &self.token_list {
+            let mut token_info = self.get_token_info(t.clone());
+            token_info.liquidation_price_fee = 1000;
+            self.supported_tokens.insert(t, &token_info);
+        }
+    }
+
     fn internal_mint(&mut self, account_id: AccountId, amount: Balance) -> (Balance, Balance) {
         let mut borrow_fee = self.borrow_fee.clone();
         if account_id == self.governance || account_id == self.foundation_id {

@@ -178,7 +178,7 @@ impl Contract {
         let deposit_account = self.get_account_info(account_id.clone());
         let token_info = self.get_token_info(collateral_token_id.clone());
         let price = self.price_data.price(&collateral_token_id);
-        let vault = deposit_account.get_vault(collateral_token_id.clone());
+        let vault = deposit_account.get_vault_or_default(account_id.clone(), collateral_token_id.clone());
         let collateral_amount = collateral_amount.unwrap_or(U128(0));
         let borrow = borrow.unwrap_or(U128(0));
 
@@ -194,9 +194,9 @@ impl Contract {
         let b = BorrowInfo {
             owner_id: account_id.clone(),
             token_id: vault.token_id.clone(),
-            deposited: U128(vault.deposited.0 + collateral_amount.0),
+            deposited: U128(vault.deposited.0),
             decimals: token_info.decimals,
-            borrowed: U128(vault.borrowed.0 + borrow.0),
+            borrowed: U128(vault.borrowed.0),
             last_deposit: vault.last_deposit,
             last_borrowed: vault.last_borrowed,
             current_collateral_ratio: current_collateral_ratio,

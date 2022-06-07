@@ -41,6 +41,11 @@ enum StorageKey {
     Metadata,
 }
 
+const DATA_IMAGE_SVG_ICON: &str =
+    "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBlbmFibGUtYmFja2dyb3VuZD0ibmV3IDAgMCAzMiAzMiIgdmVyc2lvbj0iMS4xIiB2aWV3Qm94PSIwIDAgMzIgMzIiIHhtbDpzcGFjZT0icHJlc2VydmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxzdHlsZSB0eXBlPSJ0ZXh0L2NzcyI+Cgkuc3Q2e2ZpbGw6I0ZGRkZGRjt9Cgkuc3Q1OXtmaWxsOiM4NjQ3OUY7fQo8L3N0eWxlPgo8Y2lyY2xlIGNsYXNzPSJzdDU5IiBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiLz4KPHBhdGggY2xhc3M9InN0NiIgZD0ibTIzLjU1IDguNzNjLTAuMDQtMC4wMi0wLjA3LTAuMDQtMC4xMS0wLjA2bC0wLjE2LTAuMDl2MC4wMWMtMS4zOC0wLjY2LTMuMDMtMC4zMi00LjA0IDAuODQtMC4yMiAwLjI1LTAuNDEgMC41Mi0wLjU3IDAuODFsLTAuMDEgMC4wMi0wLjA4IDAuMTQtMC4wMSAwLjAyLTAuODEgMS40OC01LjMxLTMuMDVjLTEuMTYtMC42Ny0yLjU0LTAuNjctMy43LTAuMDMtMS4yMiAwLjY4LTEuOTQgMi0xLjk0IDMuMzl2OC4yYzAgMS4xNyAwLjYzIDIuMjYgMS42NCAyLjg2IDAuMDMgMC4wMiAwLjA3IDAuMDQgMC4xIDAuMDZsMC4xNyAwLjA5YzAuNDcgMC4yMiAwLjk3IDAuMzMgMS40NyAwLjMzIDAuOTYgMCAxLjkxLTAuNDEgMi41Ny0xLjE4IDAuMjItMC4yNSAwLjQxLTAuNTIgMC41Ny0wLjgxbDAuMDEtMC4wMiAwLjA4LTAuMTQgMC4wMS0wLjAxIDAuODEtMS40OCA1LjMxIDMuMDVjMC41OSAwLjM0IDEuMjMgMC41MSAxLjg4IDAuNTEgMC42MiAwIDEuMjUtMC4xNiAxLjgyLTAuNDcgMS4yMi0wLjY4IDEuOTUtMS45OSAxLjk1LTMuMzl2LTguMmMtMC4wMS0xLjE5LTAuNjQtMi4yOS0xLjY1LTIuODh6bS0xMC43NyAxMi4yNi0wLjAzIDAuMDYtMC40NSAwLjgzYy0wLjM0IDAuNjItMC45NyAwLjk5LTEuNjcgMWgtMC4wMWMtMC43MSAwLTEuMzMtMC4zNy0xLjY3LTAuOTgtMC4xLTAuMTgtMC4xNy0wLjM3LTAuMjItMC41OC0wLjA0LTAuMTctMC4wNi0wLjM0LTAuMDYtMC41MXYtMC43OGMwLTAuMTYgMC4wMi0wLjMyIDAuMDYtMC40OSAwLjA4LTAuMzQgMC4yNS0wLjY1IDAuNDctMC45IDAuNDktMC41NSAxLjMyLTAuNjggMS45Ni0wLjMxbDIuMzUgMS4zNS0wLjczIDEuMzF6bS0wLjkyLTQuMzFjLTEuMDEtMC41Ny0yLjI1LTAuNDYtMy4xNCAwLjI3di01LjE0YzAtMC42MSAwLjMyLTEuMTYgMC44NC0xLjQ3IDAuNTMtMC4zMSAxLjE2LTAuMzEgMS43LTAuMDJsNS42NCAzLjE3LTIuNTEgNC42MS0yLjUzLTEuNDJ6bTExLjQyIDMuNWMwIDAuNjEtMC4zMiAxLjE2LTAuODQgMS40Ny0wLjUzIDAuMzEtMS4xNiAwLjMxLTEuNyAwLjAybC01LjY0LTMuMTcgMi41MS00LjYxIDIuNTMgMS40MmMwLjQzIDAuMjQgMC45IDAuMzYgMS4zOCAwLjM2IDAuNjMgMCAxLjI1LTAuMjIgMS43Ny0wLjYzdjUuMTR6bTAuMDYtOC4yMWMwIDAuMTYtMC4wMiAwLjMyLTAuMDYgMC40OS0wLjA4IDAuMzQtMC4yNSAwLjY1LTAuNDcgMC45LTAuNDkgMC41NS0xLjMyIDAuNjgtMS45NiAwLjMxbC0yLjM1LTEuMzUgMS4yLTIuMjFjMC4zNC0wLjYyIDAuOTctMC45OSAxLjY3LTFoMC4wMWMwLjcxIDAgMS4zMyAwLjM3IDEuNjcgMC45OCAwLjEgMC4xOCAwLjE3IDAuMzcgMC4yMiAwLjU4IDAuMDQgMC4xNyAwLjA2IDAuMzQgMC4wNiAwLjUxdjAuNzl6Ii8+Cjwvc3ZnPgo=";
+
+const TOKEN_NAME: &str = "nStable Governance";
+
 #[near_bindgen]
 impl Contract {
     /// Initializes the contract with the given total supply owned by the given `owner_id` with
@@ -49,7 +54,7 @@ impl Contract {
     pub fn new(owner_id: AccountId, icon: Option<String>) -> Self {
         let metadata = FungibleTokenMetadata {
             spec: "ft-1.0.0".to_string(),
-            name: "nStable StableCoin Swap".to_string(),
+            name: TOKEN_NAME.to_string(),
             symbol: "NST".to_string(),
             decimals: 6,
             icon: icon,
@@ -67,6 +72,12 @@ impl Contract {
         this.token.internal_deposit(&owner_id, total_supply.into());
         this
     }
+    
+    pub fn set_icon(&mut self) {
+        let mut metadata = self.ft_metadata();
+        metadata.icon = Some(DATA_IMAGE_SVG_ICON.to_string());
+        self.metadata.set(&metadata);
+    }
 
     fn on_account_closed(&mut self, account_id: AccountId, balance: Balance) {
         log!("Closed @{} with {}", account_id, balance);
@@ -83,7 +94,9 @@ near_contract_standards::impl_fungible_token_storage!(Contract, token, on_accoun
 #[near_bindgen]
 impl FungibleTokenMetadataProvider for Contract {
     fn ft_metadata(&self) -> FungibleTokenMetadata {
-        self.metadata.get().unwrap()
+        let mut m = self.metadata.get().unwrap();
+        m.name = TOKEN_NAME.to_string();
+        m
     }
 }
 
