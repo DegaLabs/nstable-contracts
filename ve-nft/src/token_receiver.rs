@@ -20,7 +20,7 @@ impl FungibleTokenReceiver for Contract {
         let sender: AccountId = sender_id.into();
         let amount: u128 = amount.into();
 
-        self.internal_deposit_token(sender.clone(), amount.into());
+        self.internal_deposit_token(&sender, &amount);
         PromiseOrValue::Value(U128(0))
     }
 }

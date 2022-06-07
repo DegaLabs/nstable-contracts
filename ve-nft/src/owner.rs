@@ -18,6 +18,13 @@ impl Contract {
         self.owner_id.clone()
     }
 
+    #[payable]
+    pub fn set_emergency_unlock(&mut self, emergency_unlock: bool) {
+        assert_one_yocto();
+        self.assert_owner();
+        self.allow_emergency_unlock = emergency_unlock;
+    }
+
     /// Change state of contract, Only can be called by owner or guardians.
     #[payable]
     pub fn set_min_locked_amount(&mut self, min_locked: U128) {

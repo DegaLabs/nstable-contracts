@@ -7,8 +7,8 @@ use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{LazyOption, LookupMap};
 use near_sdk::json_types::U128;
 use near_sdk::{
-    env, ext_contract, near_bindgen, require, AccountId, BorshStorageKey, PanicOnDefault, Promise, Balance,
-    PromiseOrValue, StorageUsage,
+    assert_one_yocto, env, ext_contract, near_bindgen, require, AccountId, Balance,
+    BorshStorageKey, PanicOnDefault, Promise, PromiseOrValue, StorageUsage,
 };
 use std::convert::TryFrom;
 
@@ -25,6 +25,8 @@ enum StorageKey {
 }
 
 use crate::errors::*;
+use types::*;
+use views::current_time_sec;
 
 mod errors;
 mod ft_functions;
@@ -36,7 +38,7 @@ mod views;
 
 const MINDAYS: u64 = 7;
 const MAXDAYS: u64 = 3 * 365;
-const MAXTIME: u64 = MAXDAYS * 86400 * 1_000_000_000;
+const MAXTIME: u64 = MAXDAYS * 86400;
 const MAX_WITHDRAWAL_PENALTY: u64 = 50000; //50%
 const PRECISION: u64 = 100000; // 5 decimals
 
@@ -53,9 +55,13 @@ pub struct Contract {
     pub early_withdraw_penalty_rate: u64,
     pub deposits: LookupMap<AccountId, Balance>,
     pub total_deposit: Balance,
+    pub total_locked: Balance,
+    pub voting_power_supply: Balance,
     pub tokens: NonFungibleToken,
     pub metadata: LazyOption<NFTContractMetadata>,
     pub register_storage_usage: StorageUsage,
+    pub current_token_id: Balance,
+    pub allow_emergency_unlock: bool,
 }
 
 #[near_bindgen]
@@ -101,7 +107,11 @@ impl Contract {
             locked_token_name: locked_token_name,
             locked_token_decimals: locked_token_decimals,
             total_deposit: 0u128,
-            register_storage_usage: 0
+            register_storage_usage: 0,
+            current_token_id: 0,
+            allow_emergency_unlock: false,
+            voting_power_supply: 0,
+            total_locked: 0,
         };
         this.measure_account_storage_usage();
         this
@@ -151,52 +161,74 @@ impl Contract {
         // }
     }
 
-    fn create_lock(&mut self, account_id: AccountId, value: u128, days: u64) {
+    #[payable]
+    fn create_ve_nft(&mut self, locked_amount: U128, days: u64) -> TokenId {
         assert!(
-            value >= self.min_locked_amount,
+            locked_amount.0 >= self.min_locked_amount,
             "{}",
             "less than min amount"
         );
-        let locked_balance = self.get_locked_balance(account_id.clone());
-        assert!(locked_balance.amount.0 == 0, "withdraw old tokens first");
-        assert!(days >= MINDAYS, "voting lock must be 7 days mint");
-        assert!(days <= MAXDAYS, "voting lock must be 4 years max");
-        self.internal_deposit_for(account_id, value, days)
-    }
-
-    pub fn increase_unlock_time(&mut self, days: u64) {
         let account_id = env::predecessor_account_id();
-        self.internal_increase_unlock_time(account_id, days);
+        let locked_amount = locked_amount.0;
+        self.internal_withdraw_token(&account_id, &locked_amount);
+        self.total_locked += locked_amount;
+        self.internal_create_ve_nft(&account_id, &locked_amount, days)
     }
-
-    fn increase_amount(&mut self, account_id: AccountId, amount: u128) {
-        assert!(
-            amount >= self.min_locked_amount,
-            "{}",
-            "less than min amount"
-        );
-        self.internal_deposit_for(account_id.clone(), amount, 0);
-    }
-
-    fn increase_amount_and_unlock_time(&mut self, account_id: AccountId, amount: u128, days: u64) {
-        self.internal_increase_unlock_time(account_id.clone(), days.clone());
-        self.increase_amount(account_id.clone(), amount.clone());
-    }
-
-    fn internal_increase_unlock_time(&mut self, account_id: AccountId, days: u64) {
-        assert!(days >= MINDAYS, "voting lock must be 7 days mint");
-        assert!(days <= MAXDAYS, "voting lock must be 4 years max");
-        self.internal_deposit_for(account_id.clone(), 0, days)
-    }
-
-    pub fn withdraw(&mut self) {
+    #[payable]
+    pub fn increase_unlock_time(&mut self, token_id: TokenId, days: u64) {
+        let prev_usage = env::storage_usage();
         let account_id = env::predecessor_account_id();
-        self.internal_withdraw(&account_id, false);
+        self.assert_token_id_owner(token_id.clone(), account_id.clone());
+
+        self.internal_increase_unlock_time(token_id, days);
+        self.check_cost_and_refund(prev_usage);
     }
 
-    pub fn emergency_withdraw(&mut self) {
+    #[payable]
+    pub fn increase_amount(&mut self, token_id: TokenId, amount: U128) {
+        require!(amount.0 > 0, "amount must > 0");
+        let prev_usage = env::storage_usage();
         let account_id = env::predecessor_account_id();
-        self.internal_withdraw(&account_id, true);
+        self.assert_token_id_owner(token_id.clone(), account_id.clone());
+        let amount = amount.0;
+        self.internal_withdraw_token(&account_id, &amount);
+        self.internal_increase_amount(token_id.clone(), &amount);
+        self.total_locked += amount;
+
+        self.check_cost_and_refund(prev_usage);
+    }
+
+    #[payable]
+    pub fn increase_amount_and_unlock_time(&mut self, token_id: TokenId, amount: U128, days: u64) {
+        require!(amount.0 > 0, "amount must > 0");
+
+        let prev_usage = env::storage_usage();
+        let account_id = env::predecessor_account_id();
+        self.assert_token_id_owner(token_id.clone(), account_id.clone());
+
+        let amount = amount.0;
+        self.internal_increase_unlock_time(token_id.clone(), days.clone());
+
+        self.internal_withdraw_token(&account_id, &amount);
+        self.internal_increase_amount(token_id.clone(), &amount);
+        self.total_locked += amount;
+
+        self.check_cost_and_refund(prev_usage);
+    }
+
+    pub fn unlock(&mut self, token_id: TokenId) {
+        assert_one_yocto();
+        let account_id = env::predecessor_account_id();
+        self.assert_token_id_owner(token_id.clone(), account_id.clone());
+        self.internal_unlock(&account_id, token_id, false);
+    }
+
+    pub fn emergency_unlock(&mut self, token_id: TokenId) {
+        assert_one_yocto();
+        let account_id = env::predecessor_account_id();
+        self.assert_token_id_owner(token_id.clone(), account_id.clone());
+
+        self.internal_unlock(&account_id, token_id, true);
     }
 }
 
@@ -213,6 +245,62 @@ impl NonFungibleTokenMetadataProvider for Contract {
 
 /// Internal methods implementation.
 impl Contract {
+    fn assert_token_id_owner(&self, token_id: TokenId, account_id: AccountId) {
+        let token_owner_id = self
+            .tokens
+            .owner_by_id
+            .get(&token_id)
+            .unwrap_or_else(|| env::panic_str("Token not found"));
+        require!(
+            account_id.clone() == token_owner_id.clone(),
+            "not token owner"
+        );
+    }
+
+    fn check_cost_and_refund(&self, prev_storage: StorageUsage) {
+        let storage_cost = env::storage_usage()
+            .checked_sub(prev_storage)
+            .unwrap_or_default() as Balance
+            * env::storage_byte_cost();
+
+        let refund = env::attached_deposit().checked_sub(storage_cost).expect(
+            format!(
+                "ERR_STORAGE_DEPOSIT need {}, attatched {}",
+                storage_cost,
+                env::attached_deposit()
+            )
+            .as_str(),
+        );
+        if refund > 0 {
+            Promise::new(env::predecessor_account_id()).transfer(refund);
+        }
+    }
+
+    pub fn internal_increase_amount(&mut self, token_id: TokenId, locked_amount: &Balance) {
+        let token = match self.tokens.nft_token(token_id.clone()) {
+            Some(t) => t,
+            None => env::panic_str("no token found"),
+        };
+
+        let mut metadata = token.metadata.unwrap();
+        let mut lock_info = self.unwrap_metadata(&metadata);
+
+        let vp = self
+            .voting_power_unlock_time(U128(locked_amount.clone()), lock_info.locked_till.clone())
+            .0;
+        lock_info.locked_token_amount = U128(lock_info.locked_token_amount.0 + locked_amount);
+
+        lock_info.voting_power = U128(lock_info.voting_power.0 + vp);
+
+        metadata.extra = Some(self.wrap_metadata(&lock_info));
+
+        self.voting_power_supply += vp;
+        self.tokens
+            .token_metadata_by_id
+            .as_mut()
+            .and_then(|by_id| by_id.insert(&token_id, &metadata));
+    }
+
     pub fn internal_register_account(&mut self, account_id: &AccountId) {
         if self.deposits.insert(&account_id, &0).is_some() {
             env::panic(b"The account is already registered");
@@ -224,75 +312,113 @@ impl Contract {
     pub fn internal_unwrap_deposit(&self, account_id: &AccountId) -> Balance {
         match self.deposits.get(account_id) {
             Some(d) => d,
-            None => env::panic_str("account to registered")
+            None => env::panic_str("account to registered"),
         }
     }
 
-    fn internal_deposit_token(&mut self, receiver_id: AccountId, amount: u128) {
-        let amount_balance: Balance = amount.into();
-        let mut deposited = self.internal_unwrap_deposit(&receiver_id);
-        if let Some(new_deposited) = deposited.checked_add(amount) {
-            self.deposits.insert(&receiver_id, &new_deposited);
+    fn internal_deposit_token(&mut self, receiver_id: &AccountId, amount: &Balance) {
+        let mut deposited = self.internal_unwrap_deposit(receiver_id);
+        if let Some(new_deposited) = deposited.checked_add(amount.clone()) {
+            self.deposits.insert(receiver_id, &new_deposited);
             self.total_deposit = self
                 .total_deposit
-                .checked_add(amount)
-                .unwrap_or_else(|| env::panic_str("Total supply overflow"));
+                .checked_add(amount.clone())
+                .unwrap_or_else(|| env::panic_str("Total deposit overflow"));
         } else {
-            env::panic_str("Balance overflow");
+            env::panic_str("deposit overflow");
         }
     }
 
-    fn internal_deposit_for(&mut self, account_id: AccountId, value: Balance, days: u64) {
-        // let mut locked_balance = self.get_locked_balance(account_id.clone());
-        // let now = env::block_timestamp();
-        // let amount = locked_balance.amount;
-        // let end = locked_balance.end;
-        // let mut vp: u128 = 0;
-        // if amount == 0 {
-        //     vp = self
-        //         .voting_power_locked_days(U128(value.clone()), days.clone())
-        //         .into();
-        //     locked_balance.amount = value;
-        //     locked_balance.end = now + days * 86400 * 1_000_000_000;
-        // } else if days == 0 {
-        //     vp = self
-        //         .voting_power_unlock_time(U128(value.clone()), end.clone())
-        //         .into();
-        //     locked_balance.amount = amount + value;
-        // } else {
-        //     assert!(
-        //         value == 0,
-        //         "{}",
-        //         "Cannot increase amount and extend lock in the same time"
-        //     );
-        //     vp = self
-        //         .voting_power_locked_days(U128(amount.clone()), end.clone())
-        //         .into();
-        //     locked_balance.end = end + days * 86400 * 1_000_000_000;
-        //     assert!(
-        //         locked_balance.end - now <= MAXTIME,
-        //         "{}",
-        //         "Cannot extend lock to more than 4 years"
-        //     );
-        // }
-        // assert!(vp > 0, "{}", "No benefit to lock");
-        // self.lockeds.insert(&account_id, &locked_balance);
-        // self.token.internal_deposit(&account_id, vp);
-        // let prev_minted = self.internal_unwrap_minted_for_lock(&account_id);
-        // if let Some(new_minted) = prev_minted.checked_add(vp) {
-        //     self.minted_for_lock.insert(&account_id, &new_minted);
-        //     self.supply += value;
-        // } else {
-        //     env::panic(b"Balance overflow");
-        // }
+    fn internal_withdraw_token(&mut self, account_id: &AccountId, amount: &Balance) {
+        let mut deposited = self.internal_unwrap_deposit(account_id);
+        if let Some(new_deposited) = deposited.checked_sub(amount.clone()) {
+            self.deposits.insert(account_id, &new_deposited);
+            self.total_deposit = self
+                .total_deposit
+                .checked_sub(amount.clone())
+                .unwrap_or_else(|| env::panic_str("Total deposit underflow"));
+        } else {
+            env::panic_str("deposit underflow");
+        }
     }
 
-    fn internal_unwrap_minted_for_lock(&self, account_id: &AccountId) -> Balance {
-        // match self.minted_for_lock.get(account_id) {
-        //     Some(balance) => balance,
-        //     None => env::panic(format!("The account {} is not registered", &account_id).as_bytes()),
-        // }
-        0
+    fn internal_create_ve_nft(
+        &mut self,
+        account_id: &AccountId,
+        locked_amount: &Balance,
+        days: u64,
+    ) -> TokenId {
+        self.current_token_id += 1;
+        let token_id = format!("{}", self.current_token_id);
+        let voting_power = self
+            .voting_power_locked_days(U128(locked_amount.clone()), days.clone())
+            .0;
+        let lock_info = LockInfo {
+            creator: account_id.clone(),
+            create_time_sec: current_time_sec(),
+            locked_token_amount: U128(locked_amount.clone()),
+            locked_till: current_time_sec() + days * 86400,
+            voting_power: U128(voting_power.clone()),
+        };
+        let token_metadata = TokenMetadata {
+            title: Some(
+                format!("Vesting Escrow NFT for token {}", self.locked_token_name).to_string(),
+            ),
+            description: None,
+            media: None,
+            media_hash: None,
+            copies: None,
+            issued_at: None,
+            expires_at: None,
+            starts_at: None,
+            updated_at: None,
+            extra: Some(self.wrap_metadata(&lock_info)),
+            reference: None,
+            reference_hash: None,
+        };
+        self.tokens
+            .internal_mint(token_id.clone(), account_id.clone(), Some(token_metadata));
+        self.voting_power_supply += voting_power;
+        token_id
+    }
+
+    fn internal_increase_unlock_time(&mut self, token_id: TokenId, days: u64) {
+        assert!(days >= MINDAYS, "voting lock must be 7 days mint");
+        assert!(days <= MAXDAYS, "voting lock must be 4 years max");
+        let token = match self.tokens.nft_token(token_id.clone()) {
+            Some(t) => t,
+            None => env::panic_str("no token found"),
+        };
+
+        let mut metadata = token.metadata.unwrap();
+        let mut lock_info = self.unwrap_metadata(&metadata);
+        let now = env::block_timestamp_ms() / 1000;
+        let vp = self
+            .voting_power_locked_days(lock_info.locked_token_amount, days)
+            .0;
+        lock_info.locked_till = lock_info.locked_till + days * 86400;
+        lock_info.voting_power = U128(lock_info.voting_power.0 + vp);
+        assert!(
+            lock_info.locked_till - now <= MAXTIME,
+            "{}",
+            "Cannot extend lock to more than 4 years"
+        );
+
+        metadata.extra = Some(self.wrap_metadata(&lock_info));
+        self.voting_power_supply += vp;
+        self.tokens
+            .token_metadata_by_id
+            .as_mut()
+            .and_then(|by_id| by_id.insert(&token_id, &metadata));
+    }
+
+    fn unwrap_metadata(&self, metadata: &TokenMetadata) -> LockInfo {
+        near_sdk::serde_json::from_str::<LockInfo>(&metadata.extra.clone().unwrap())
+            .expect("wrong metadata format")
+    }
+
+    fn wrap_metadata(&self, lock_info: &LockInfo) -> String {
+        near_sdk::serde_json::to_string(lock_info).unwrap()
     }
 
     fn internal_penalize(&mut self, amount: Balance) {
@@ -300,23 +426,25 @@ impl Contract {
         //self.token.internal_withdraw(account_id, amount.clone());
     }
 
-    fn internal_withdraw(&mut self, account_id: &AccountId, emergency: bool) {
-        //just burn
-        // let mut locked_balance = self.get_locked_balance(account_id.clone());
-        // let now = env::block_timestamp();
-        // assert!(locked_balance.amount > 0, "{}", "Nothing to withdraw");
+    fn internal_unlock(&mut self, account_id: &AccountId, token_id: TokenId, emergency: bool) {
+        // let mut lock_info = self.get_token_ve_metadata(token_id.clone());
+        // let now = env::block_timestamp_ms() / 1000;
+        // assert!(
+        //     lock_info.locked_token_amount.0 > 0,
+        //     "{}",
+        //     "Nothing to withdraw"
+        // );
         // if !emergency {
-        //     assert!(now >= locked_balance.end, "lock didnt expire yet");
+        //     assert!(now >= locked_balance.locked_till, "lock didnt expire yet");
         // }
-        // let mut amount = locked_balance.amount;
-        // if now < locked_balance.end {
-        //     let fee = amount * u128::try_from(self.early_withdraw_penalty_rate).unwrap_or_default()
-        //         / u128::try_from(PRECISION).unwrap_or_default();
+        // let mut amount = lock_info.locked_token_amount.0;
+        // if now < locked_balance.locked_till {
+        //     let fee = amount * (self.early_withdraw_penalty_rate as u128) / (PRECISION as u128);
         //     self.internal_penalize(fee.clone()); //burn fee
         //     amount -= fee;
         // }
-        // locked_balance.end = 0;
-        // locked_balance.amount = 0;
+        // lock_info.locked_token_amount = 0;
+        // lock_info.locked_till = 0;
 
         // //burn ve
         // self.token
