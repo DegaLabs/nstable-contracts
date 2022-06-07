@@ -1,0 +1,19 @@
+[package]
+name = "ve-nft"
+version = "1.4.4"
+authors = ["Ben Degalabs <ben@degalabs.fi>"]
+edition = "2018"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+uint = { version = "0.9.3", default-features = false }
+near-sdk = "4.0.0-pre.1"
+near-contract-standards = "4.0.0-pre.1"
+
+[dev-dependencies]
+near-sdk-sim = "4.0.0-pre.1"
+rand = "0.8"
+rand_pcg = "0.3"
