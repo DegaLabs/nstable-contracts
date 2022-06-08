@@ -6,7 +6,7 @@ use crate::utils::{GAS_FOR_FT_TRANSFER_CALL, GAS_FOR_RESOLVE_TRANSFER, NO_DEPOSI
 use crate::*;
 
 #[ext_contract(ext_self)]
-trait FTTokenResolver {
+trait MFTTokenResolver {
     fn mft_resolve_transfer(
         &mut self,
         token_id: String,
@@ -17,7 +17,7 @@ trait FTTokenResolver {
 }
 
 #[ext_contract(ext_share_token_receiver)]
-pub trait FTTokenReceiver {
+pub trait MFTTokenReceiver {
     fn mft_on_transfer(
         &mut self,
         token_id: String,
