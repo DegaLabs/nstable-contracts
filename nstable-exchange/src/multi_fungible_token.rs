@@ -7,7 +7,7 @@ use crate::*;
 
 #[ext_contract(ext_self)]
 trait FTTokenResolver {
-    fn ft_resolve_transfer(
+    fn mft_resolve_transfer(
         &mut self,
         token_id: String,
         sender_id: AccountId,
@@ -18,7 +18,7 @@ trait FTTokenResolver {
 
 #[ext_contract(ext_share_token_receiver)]
 pub trait FTTokenReceiver {
-    fn ft_on_transfer(
+    fn mft_on_transfer(
         &mut self,
         token_id: String,
         sender_id: AccountId,
@@ -188,7 +188,7 @@ impl Contract {
             amount.0,
             memo,
         );
-        ext_share_token_receiver::ft_on_transfer(
+        ext_share_token_receiver::mft_on_transfer(
             token_id.clone(),
             sender_id.clone(),
             amount,
@@ -197,7 +197,7 @@ impl Contract {
             NO_DEPOSIT,
             env::prepaid_gas() - GAS_FOR_FT_TRANSFER_CALL,
         )
-        .then(ext_self::ft_resolve_transfer(
+        .then(ext_self::mft_resolve_transfer(
             token_id,
             sender_id,
             receiver_id.into(),
