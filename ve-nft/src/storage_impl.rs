@@ -14,32 +14,23 @@ impl Contract {
         force: Option<bool>,
     ) -> Option<(AccountId, Balance)> {
         assert_one_yocto();
-        // let account_id = env::predecessor_account_id();
-        // let force = force.unwrap_or(false);
-        // if let Some(balance) = self.token.accounts.get(&account_id) {
-        //     if balance == 0 || force {
-        //         self.token.accounts.remove(&account_id);
-        //         self.token.total_supply -= balance;
-        //         if let Some(minted_for) = self.minted_for_lock.get(&account_id) {
-        //             if minted_for == 0 || force {
-        //                 self.lockeds.remove(&account_id);
-        //                 self.minted_for_lock.remove(&account_id);
-        //                 self.supply -= minted_for;
-        //             }
-        //         }
-        //         Promise::new(account_id.clone()).transfer(self.storage_balance_bounds().min.0 + 1);
-        //         Some((account_id, balance))
-        //     } else {
-        //         env::panic(
-        //             "Can't unregister the account with the positive balance without force"
-        //                 .as_bytes(),
-        //         )
-        //     }
-        // } else {
-        //     log!("The account {} is not registered", &account_id);
-        //     None
-        // }
-        None
+        let account_id = env::predecessor_account_id();
+        let force = force.unwrap_or(false);
+        if let Some(deposited) = self.deposits.get(&account_id) {
+            if deposited == 0 || force {
+                self.deposits.remove(&account_id);
+                self.total_deposit -= deposited;
+                Promise::new(account_id.clone()).transfer(self.storage_balance_bounds().min.0 + 1);
+                Some((account_id, deposited))
+            } else {
+                env::panic_str(
+                    "Can't unregister the account with the positive deposited without force",
+                )
+            }
+        } else {
+            log!("The account {} is not registered", &account_id);
+            None
+        }
     }
 
     fn internal_storage_balance_of(&self, account_id: &AccountId) -> Option<StorageBalance> {
@@ -76,7 +67,7 @@ impl StorageManagement for Contract {
         } else {
             let min_balance = self.storage_balance_bounds().min.0;
             if amount < min_balance {
-                env::panic("The attached deposit is less than the minimum storage balance".as_bytes());
+                env::panic_str("The attached deposit is less than the minimum storage balance");
             }
 
             self.internal_register_account(&account_id);
@@ -105,9 +96,10 @@ impl StorageManagement for Contract {
                 _ => storage_balance,
             }
         } else {
-            env::panic_str(
-                &format!("The account {} is not registered", predecessor_account_id),
-            );
+            env::panic_str(&format!(
+                "The account {} is not registered",
+                predecessor_account_id
+            ));
         }
     }
 

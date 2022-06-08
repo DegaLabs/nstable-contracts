@@ -3,7 +3,6 @@ use near_sdk::json_types::U128;
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{env, near_bindgen, AccountId};
 use std::convert::TryFrom;
-use types::*;
 
 #[derive(Serialize, Deserialize, PartialEq)]
 #[serde(crate = "near_sdk::serde")]
@@ -27,7 +26,6 @@ impl Contract {
         MetaData {
             min_days: MINDAYS,
             max_days: MAXDAYS,
-
             max_time: MAXTIME,
             max_withdrawal_penalty: MAX_WITHDRAWAL_PENALTY,
             precision: PRECISION,
@@ -36,6 +34,10 @@ impl Contract {
             min_locked_amount: U128(self.min_locked_amount.clone()),
             early_withdraw_penalty_rate: self.early_withdraw_penalty_rate.into(),
         }
+    }
+
+    pub fn get_deposit(&self, account_id: AccountId) -> U128 {
+        U128(self.deposits.get(&account_id).unwrap_or(0))
     }
 
     pub fn get_token_ve_metadata(&self, token_id: TokenId) -> LockInfo {

@@ -17,3 +17,6 @@ near-contract-standards = "4.0.0-pre.1"
 near-sdk-sim = "4.0.0-pre.1"
 rand = "0.8"
 rand_pcg = "0.3"
+
+[profile.release]
+overflow-checks = true
