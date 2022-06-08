@@ -328,6 +328,21 @@ impl Contract {
         }
     }
 
+    /// Should only be called by this contract on migration.
+    /// This is NOOP implementation. KEEP IT if you haven't changed contract state.
+    /// If you have changed state, you need to implement migration from old state (keep the old struct with different name to deserialize it first).
+    /// After migrate goes live on MainNet, return this implementation for next updates.
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        assert_eq!(
+            env::predecessor_account_id(),
+            env::current_account_id(),
+            "ERR_NOT_ALLOWED"
+        );
+        let this: Contract = env::state_read().expect("ERR_CONTRACT_IS_NOT_INITIALIZED");
+        this
+    }
+
     fn internal_mint(&mut self, account_id: AccountId, amount: Balance) -> (Balance, Balance) {
         let mut borrow_fee = self.borrow_fee.clone();
         if account_id == self.governance || account_id == self.foundation_id {
