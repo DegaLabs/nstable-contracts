@@ -213,7 +213,7 @@ impl Contract {
     /// If sender removed account in the meantime, the tokens are sent to the contract account.
     /// Tokens are never burnt.
     #[private]
-    pub fn ft_resolve_transfer(
+    pub fn mft_resolve_transfer(
         &mut self,
         token_id: String,
         sender_id: AccountId,
