@@ -145,7 +145,7 @@ impl Default for AccountDeposit {
 impl AccountDeposit {
     pub fn get_vault_index(&self, collateral_token_id: AccountId) -> usize {
         let length = self.vaults.len();
-        let mut i = 0;
+        let mut i = length.clone();
         while i < length {
             let vault = &self.vaults[i];
             if vault.token_id == collateral_token_id.clone() {
