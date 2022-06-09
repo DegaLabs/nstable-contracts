@@ -14,7 +14,7 @@ pub const NO_DEPOSIT: u128 = 0;
 /// 10T gas for basic operation
 pub const GAS_FOR_BASIC_OP: Gas = 10_000_000_000_000;
 
-/// hotfix_insuffient_gas_for_ft_resolve_transfer.
+/// hotfix_insuffient_gas_for_mft_resolve_transfer.
 pub const GAS_FOR_RESOLVE_TRANSFER: Gas = 20_000_000_000_000;
 
 pub const GAS_FOR_FT_TRANSFER_CALL: Gas = 25_000_000_000_000 + GAS_FOR_RESOLVE_TRANSFER;

@@ -284,7 +284,7 @@ fn guardians_scenario_02() {
         ),
         deposit = 1
     ).assert_success();
-    assert_eq!(ft_balance_of(&pool, ":1", &pool.account_id()), 18182851357079036914);
+    assert_eq!(mft_balance_of(&pool, ":1", &pool.account_id()), 18182851357079036914);
     
     // guardians remove liquidity but owner account not ready
     println!("Guardians Case 0201: remove liquidity fail if owner account is not ready");
@@ -297,7 +297,7 @@ fn guardians_scenario_02() {
     assert!(!out_come.is_ok());
     assert_eq!(get_error_count(&out_come), 1);
     assert!(get_error_status(&out_come).contains("E10: account not registered"));
-    assert_eq!(ft_balance_of(&pool, ":1", &pool.account_id()), 18182851357079036914);
+    assert_eq!(mft_balance_of(&pool, ":1", &pool.account_id()), 18182851357079036914);
 
     // guardians remove liquidity
     println!("Guardians Case 0202: remove liquidity success");
@@ -313,7 +313,7 @@ fn guardians_scenario_02() {
         deposit = 1
     );
     out_come.assert_success();
-    assert_eq!(ft_balance_of(&pool, ":1", &pool.account_id()), 0);
+    assert_eq!(mft_balance_of(&pool, ":1", &pool.account_id()), 0);
     let owner_deposits = get_deposits(&pool, owner.valid_account_id());
     assert_eq!(owner_deposits.get(&token2.account_id()).unwrap().0, 330666437772348207866);
     assert_eq!(owner_deposits.get(&token3.account_id()).unwrap().0, 200007728217076967880);
