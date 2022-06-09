@@ -343,6 +343,57 @@ impl Contract {
     pub fn get_min_borrow(&self) -> U128 {
         return U128(100 * 10u128.pow(18));
     }
+
+    pub fn get_liquidations_len(&self) -> usize {
+        self.liquidation_history.len()
+    }
+
+    pub fn get_liquidations_of(&self, account_id: AccountId, from_index: Option<usize>, limit: Option<usize>) -> Vec<&Liquidation> {
+        let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
+        require!(limit != 0, "Cannot provide limit of 0.");
+        let start_index = from_index.unwrap_or(0);
+        require!(
+            self.liquidation_history.len() > start_index,
+            "Out of bounds, please use a smaller from_index."
+        );
+        self.liquidation_history
+            .iter()
+            .skip(start_index as usize)
+            .take(limit)
+            .filter(|l| l.owner_id == account_id.clone())
+            .collect::<Vec<_>>()
+    }
+
+    pub fn get_liquidations_by(&self, account_id: AccountId, from_index: Option<usize>, limit: Option<usize>) -> Vec<&Liquidation> {
+        let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
+        require!(limit != 0, "Cannot provide limit of 0.");
+        let start_index = from_index.unwrap_or(0);
+        require!(
+            self.liquidation_history.len() > start_index,
+            "Out of bounds, please use a smaller from_index."
+        );
+        self.liquidation_history
+            .iter()
+            .skip(start_index as usize)
+            .take(limit)
+            .filter(|l| l.maker_id == account_id.clone())
+            .collect::<Vec<_>>()
+    }
+
+    pub fn get_liquidations(&self, from_index: Option<usize>, limit: Option<usize>) -> Vec<&Liquidation> {
+        let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
+        require!(limit != 0, "Cannot provide limit of 0.");
+        let start_index = from_index.unwrap_or(0);
+        require!(
+            self.liquidation_history.len() > start_index,
+            "Out of bounds, please use a smaller from_index."
+        );
+        self.liquidation_history
+            .iter()
+            .skip(start_index as usize)
+            .take(limit)
+            .collect::<Vec<_>>()
+    }
 }
 
 impl Contract {
