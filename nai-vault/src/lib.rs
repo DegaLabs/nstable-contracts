@@ -20,7 +20,7 @@ use near_sdk::PromiseOrValue;
 use near_contract_standards::fungible_token::metadata::{
     FungibleTokenMetadata, FungibleTokenMetadataProvider, FT_METADATA_SPEC,
 };
-use near_contract_standards::fungible_token::FungibleToken;
+use near_contract_standards::fungible_token::{events::FtBurn, events::FtMint, FungibleToken};
 
 use oracle::{ExchangeRate, Price, PriceData};
 use std::fmt::Debug;
@@ -181,7 +181,12 @@ impl AccountDeposit {
         Vault::new(&owner_id, &collateral_token_id)
     }
 
-    pub fn deposit_or_add_vault(&mut self, account_id: &AccountId, collateral_token_id: &AccountId, collateral_amount: &Balance) {
+    pub fn deposit_or_add_vault(
+        &mut self,
+        account_id: &AccountId,
+        collateral_token_id: &AccountId,
+        collateral_amount: &Balance,
+    ) {
         //find the vault for collateral token
         let length = self.vaults.len();
         let i = self.get_vault_index(collateral_token_id.clone());
@@ -370,6 +375,20 @@ impl Contract {
             .internal_deposit(&self.foundation_id, fee_amount.clone());
         self.token
             .internal_deposit(&account_id, amount - fee_amount);
+        FtMint {
+            owner_id: &account_id,
+            amount: &U128(amount - fee_amount),
+            memo: Some("Borrow"),
+        }
+        .emit();
+
+        FtMint {
+            owner_id: &self.foundation_id.clone(),
+            amount: &U128(fee_amount.clone()),
+            memo: Some("Borrow Fee"),
+        }
+        .emit();
+
         (amount - fee_amount, fee_amount)
     }
 
@@ -402,12 +421,7 @@ impl Contract {
     }
 
     #[payable]
-    pub fn pay_loan(
-        &mut self,
-        collateral_token_id: &AccountId,
-        pay_amount: U128,
-    ) -> U128 {
-        assert_one_yocto();
+    pub fn pay_loan(&mut self, collateral_token_id: &AccountId, pay_amount: U128) -> U128 {
         //cant pay loan if collateral ratio is under min. users need to deposit more to get ratio go above min ratio
         let account_id = &env::predecessor_account_id();
         self.assert_collateral_ratio_valid(account_id, collateral_token_id);
@@ -431,6 +445,12 @@ impl Contract {
 
         //burn NAI
         self.token.internal_withdraw(account_id, burn);
+        FtBurn {
+            owner_id: account_id,
+            amount: &U128(burn),
+            memo: Some("PayLoan")
+        }.emit();
+
         U128(burn)
     }
 
@@ -484,15 +504,12 @@ impl Contract {
         self.assert_governance();
         let mut token_info = self.get_token_info(collateral_token_id.clone());
         token_info.collateral_ratio = cr;
-        self.supported_tokens.insert(&collateral_token_id, &token_info);
+        self.supported_tokens
+            .insert(&collateral_token_id, &token_info);
     }
 
     #[payable]
-    pub fn borrow(
-        &mut self,
-        collateral_token_id: &AccountId,
-        borrow_amount: U128
-    ) {
+    pub fn borrow(&mut self, collateral_token_id: &AccountId, borrow_amount: U128) {
         assert_one_yocto();
         // Select target account.
         let borrow_amount = borrow_amount.0;
@@ -551,7 +568,6 @@ impl Contract {
         self.assert_storage_usage(&account);
         self.assert_collateral_ratio_valid(&account, &collateral_token_id);
     }
-
 
     #[payable]
     pub fn withdraw_collateral(&mut self, collateral_token_id: AccountId, withdraw_amount: U128) {
@@ -649,7 +665,8 @@ impl Contract {
         if vault.borrowed.0 == 0 {
             //liquidate all if the remaining deposited value <= LOW_POSITION_VALUE_NAI
             let remain_collateral_value = self.compute_collateral_value(&vault.deposited.0, &price);
-            let remain_collateral_value_in_nai = remain_collateral_value * U256::from(10u128.pow(18 as u32))
+            let remain_collateral_value_in_nai = remain_collateral_value
+                * U256::from(10u128.pow(18 as u32))
                 / U256::from(10u128.pow(token_info.decimals as u32));
             require!(
                 remain_collateral_value_in_nai.as_u128() <= LOW_POSITION_VALUE_NAI,
@@ -667,13 +684,20 @@ impl Contract {
         self.total_nai_borrowed = U128(self.total_nai_borrowed.0 - nai_amount.0);
         //burn nai
         self.token.internal_withdraw(&maker_id, nai_amount.0);
+        FtBurn {
+            owner_id: &maker_id,
+            amount: &nai_amount,
+            memo: Some("Liquidate")
+        }.emit();
 
         //compute liquidated collateral amount to cover NAI burnt by maker
         let liquidate_collateral_to_cover_nai_burnt = liquidate_value
-        * U256::from(10u128.pow(price.decimals as u32))
-        / U256::from(price.multiplier.0);
-        let liquidate_collateral_to_cover_nai_burnt = liquidate_collateral_to_cover_nai_burnt.as_u128();
-        let remain_penalty_in_collateral = liquidate_collateral - liquidate_collateral_to_cover_nai_burnt;
+            * U256::from(10u128.pow(price.decimals as u32))
+            / U256::from(price.multiplier.0);
+        let liquidate_collateral_to_cover_nai_burnt =
+            liquidate_collateral_to_cover_nai_burnt.as_u128();
+        let remain_penalty_in_collateral =
+            liquidate_collateral - liquidate_collateral_to_cover_nai_burnt;
 
         let liquidate_collateral_to_treasury = remain_penalty_in_collateral * 50 / 100;
         let liquidate_collateral_to_maker = liquidate_collateral - liquidate_collateral_to_treasury;
