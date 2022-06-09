@@ -662,12 +662,12 @@ impl Contract {
         let liquidate_collateral_to_maker = liquidate_collateral - liquidate_collateral_to_treasury;
 
         //deposit to maker & foundation account
-        self.deposit_to_vault(
+        self.internal_deposit_to_vault(
             &collateral_token_id,
             &liquidate_collateral_to_treasury,
             &self.foundation_id.clone(),
         );
-        self.deposit_to_vault(
+        self.internal_deposit_to_vault(
             &collateral_token_id,
             &liquidate_collateral_to_maker,
             &maker_id,
@@ -744,17 +744,6 @@ impl Contract {
 
     pub fn version(&self) -> String {
         format!("{}:{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
-    }
-
-    /// This is NOOP implementation. KEEP IT if you haven't changed contract state.
-    /// Should only be called by this contract on migration.
-    /// This method is called from `upgrade()` method.
-    /// For next version upgrades, change this function.
-    #[init(ignore_state)]
-    #[private]
-    pub fn migrate() -> Self {
-        let contract: Self = env::state_read().expect("Contract is not initialized");
-        contract
     }
 
     fn abort_if_pause(&self) {
@@ -853,6 +842,22 @@ impl Contract {
     }
 
     fn deposit_to_vault(
+        &mut self,
+        collateral_token_id: &AccountId,
+        collateral_amount: &Balance,
+        account_id: &AccountId,
+    ) {
+        let init_storage = env::storage_usage();
+        self.internal_deposit_to_vault(collateral_token_id, collateral_amount, account_id);
+        let mut deposit_account = self.get_account_info(account_id.clone());
+
+        let storage_used = env::storage_usage() - init_storage;
+        deposit_account.storage_usage += storage_used;
+        self.accounts.insert(account_id, &deposit_account);
+        self.assert_storage_usage(account_id);
+    }
+
+    fn internal_deposit_to_vault(
         &mut self,
         collateral_token_id: &AccountId,
         collateral_amount: &Balance,
