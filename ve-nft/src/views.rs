@@ -51,17 +51,19 @@ impl Contract {
         lock_info
     }
 
-    pub fn get_token_metadata_for_account(&self, account_id: AccountId) -> Vec<LockInfo> {
+    pub fn get_token_metadata_for_account(&self, account_id: AccountId) -> (Vec<TokenId>, Vec<LockInfo>) {
         let mut ret: Vec<LockInfo> = vec![];
+        let mut token_ids: Vec<TokenId> = vec![];
         let tokens = self.tokens.nft_tokens_for_owner(account_id.clone(), None, None);
 
         for token in &tokens {
             let metadata = token.metadata.as_ref().unwrap();
             let lock_info = self.unwrap_metadata(&metadata);
             ret.push(lock_info);
+            token_ids.push(token.token_id.clone());
         }
         
-        ret
+        (token_ids, ret)
     }
 
     pub fn get_voting_power_for_account(
