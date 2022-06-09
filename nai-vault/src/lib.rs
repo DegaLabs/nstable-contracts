@@ -255,6 +255,7 @@ pub struct Contract {
     foundation_id: AccountId,
     borrow_fee: u128,
     liquidation_history: Vec<Liquidation>,
+    account_list: Vec<AccountId>
 }
 
 near_contract_standards::impl_fungible_token_core!(Contract, token, on_tokens_burned);
@@ -307,6 +308,7 @@ impl Contract {
             foundation_id: foundation.clone(),
             borrow_fee: 20,
             liquidation_history: vec![],
+            account_list: vec![]
         };
 
         this.token.internal_register_account(&governance);
@@ -339,6 +341,31 @@ impl Contract {
     pub fn set_foundation_id(&mut self, account_id: AccountId) {
         self.assert_governance();
         self.foundation_id = account_id;
+    }
+
+    #[payable]
+    pub fn push_to_account_list(&mut self, account_ids: Vec<AccountId>) {
+        self.assert_governance();
+        let prev_storage = env::storage_usage();
+        for account_id in account_ids {
+            self.account_list.push(account_id.clone());
+        }
+        let storage_cost = env::storage_usage()
+            .checked_sub(prev_storage)
+            .unwrap_or_default() as Balance
+            * env::storage_byte_cost();
+
+        let refund = env::attached_deposit().checked_sub(storage_cost).expect(
+            format!(
+                "ERR_STORAGE_DEPOSIT need {}, attatched {}",
+                storage_cost,
+                env::attached_deposit()
+            )
+            .as_str(),
+        );
+        if refund > 0 {
+            Promise::new(env::predecessor_account_id()).transfer(refund);
+        }
     }
 
     pub fn reset_liquidation_fee(&mut self) {
@@ -510,7 +537,6 @@ impl Contract {
 
     #[payable]
     pub fn borrow(&mut self, collateral_token_id: &AccountId, borrow_amount: U128) -> (U128, U128) {
-        assert_one_yocto();
         // Select target account.
         let borrow_amount = borrow_amount.0;
         let account = env::predecessor_account_id();
@@ -856,6 +882,7 @@ impl Contract {
                 storage_usage: 0,
             };
             self.accounts.insert(account_id, &deposit_account);
+            self.account_list.push(account_id.clone());
         } else {
             let mut deposit_account = self.get_account_info(account_id.clone());
             deposit_account.near_amount = U128(deposit_account.near_amount.0 + amount);

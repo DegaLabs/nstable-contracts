@@ -394,6 +394,25 @@ impl Contract {
             .take(limit)
             .collect::<Vec<_>>()
     }
+
+    pub fn get_account_list_count(&self) -> usize {
+        self.account_list.len()
+    }
+
+    pub fn get_account_list(&self, from_index: Option<usize>, limit: Option<usize>) -> Vec<&AccountId> {
+        let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
+        require!(limit != 0, "Cannot provide limit of 0.");
+        let start_index = from_index.unwrap_or(0);
+        require!(
+            self.account_list.len() > start_index,
+            "Out of bounds, please use a smaller from_index."
+        );
+        self.account_list
+            .iter()
+            .skip(start_index as usize)
+            .take(limit)
+            .collect::<Vec<_>>()
+    }
 }
 
 impl Contract {
