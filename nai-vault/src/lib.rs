@@ -509,7 +509,7 @@ impl Contract {
     }
 
     #[payable]
-    pub fn borrow(&mut self, collateral_token_id: &AccountId, borrow_amount: U128) {
+    pub fn borrow(&mut self, collateral_token_id: &AccountId, borrow_amount: U128) -> (U128, U128) {
         assert_one_yocto();
         // Select target account.
         let borrow_amount = borrow_amount.0;
@@ -557,7 +557,7 @@ impl Contract {
         account_deposit.near_amount = U128(account_deposit.near_amount.0 + near);
         self.accounts.insert(&account, &account_deposit);
 
-        let (actual_received, _) = self.internal_mint(account.clone(), borrowable.clone());
+        let (actual_received, fee) = self.internal_mint(account.clone(), borrowable.clone());
 
         self.finish_borrow(
             collateral_token_id.clone(),
@@ -567,6 +567,7 @@ impl Contract {
         );
         self.assert_storage_usage(&account);
         self.assert_collateral_ratio_valid(&account, &collateral_token_id);
+        (actual_received.into(), fee.into())
     }
 
     #[payable]
