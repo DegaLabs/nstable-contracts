@@ -181,6 +181,23 @@ impl AccountDeposit {
         Vault::new(&owner_id, &collateral_token_id)
     }
 
+    pub fn deposit_or_add_vault(&mut self, account_id: &AccountId, collateral_token_id: &AccountId, collateral_amount: &Balance) {
+        //find the vault for collateral token
+        let length = self.vaults.len();
+        let i = self.get_vault_index(collateral_token_id.clone());
+        if i < length {
+            let mut vault = self.vaults[i].clone();
+            vault.deposited = U128(vault.deposited.0 + collateral_amount.clone());
+            vault.last_deposit = U128(collateral_amount.clone());
+            self.vaults[i] = vault;
+        } else {
+            let mut vault = Vault::new(account_id, collateral_token_id);
+            vault.deposited = U128(vault.deposited.0 + collateral_amount.clone());
+            vault.last_deposit = U128(collateral_amount.clone());
+            self.add_vault(&vault);
+        }
+    }
+
     pub fn add_vault(&mut self, vault: &Vault) {
         self.vaults.push(vault.clone());
     }
@@ -827,8 +844,7 @@ impl Contract {
             let token_count = self.token_list.len();
             while i < token_count {
                 let token_id = self.token_list[i].clone();
-                let vault = Vault::new(&account_id.clone(), &token_id.clone());
-                deposit_account.add_vault(&vault);
+                deposit_account.deposit_or_add_vault(account_id, &token_id, &0u128);
                 i = i + 1;
             }
         }
@@ -864,23 +880,8 @@ impl Contract {
         account_id: &AccountId,
     ) {
         let mut deposit_account = self.internal_unwrap_account_or_revert(account_id);
-        //find the vault for collateral token
-        let length = deposit_account.vaults.len();
-        let i = deposit_account.get_vault_index(collateral_token_id.clone());
-        if i < length {
-            let mut vault = deposit_account.vaults[i].clone();
-            vault.deposited = U128(vault.deposited.0 + collateral_amount.clone());
-            vault.last_deposit = U128(collateral_amount.clone());
-            deposit_account.vaults[i] = vault;
-            self.accounts.insert(&account_id, &deposit_account);
-        } else {
-            let mut vault = Vault::new(&account_id, &collateral_token_id);
-            vault.deposited = U128(vault.deposited.0 + collateral_amount.clone());
-            vault.last_deposit = U128(collateral_amount.clone());
-            deposit_account.add_vault(&vault);
-            self.accounts.insert(&account_id, &deposit_account);
-        }
-
+        deposit_account.deposit_or_add_vault(account_id, collateral_token_id, collateral_amount);
+        self.accounts.insert(account_id, &deposit_account);
         let mut token_info = self.supported_tokens.get(collateral_token_id).unwrap();
         token_info.total_deposit = U128(token_info.total_deposit.0 + collateral_amount);
         self.supported_tokens
