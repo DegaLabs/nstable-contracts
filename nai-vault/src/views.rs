@@ -154,6 +154,7 @@ impl Contract {
                     vault.token_id.clone(),
                     None,
                     None,
+                    None
                 ),
                 max_borrowable: self.compute_max_borrowable_for_account(
                     account_id.clone(),
@@ -174,6 +175,7 @@ impl Contract {
         collateral_token_id: AccountId,
         collateral_amount: Option<U128>,
         borrow: Option<U128>,
+        pay_amount: Option<U128>
     ) -> BorrowInfo {
         let deposit_account = self.get_account_info(account_id.clone());
         let token_info = self.get_token_info(collateral_token_id.clone());
@@ -181,13 +183,14 @@ impl Contract {
         let vault = deposit_account.get_vault_or_default(account_id.clone(), collateral_token_id.clone());
         let collateral_amount = collateral_amount.unwrap_or(U128(0));
         let borrow = borrow.unwrap_or(U128(0));
+        let pay_amount = pay_amount.unwrap_or(U128(0));
 
         let collateral_value = self.compute_collateral_value(&(vault.deposited.0 + collateral_amount.0), &price);
-        let mut current_collateral_ratio = 0 as u64;
-        if vault.borrowed.0 + borrow.0 > 0 {
+        let mut current_collateral_ratio = 10000000000 as u64;  //any big number
+        if vault.borrowed.0 + borrow.0 > pay_amount.0 {
             current_collateral_ratio = self.compute_cr(
                 &collateral_value,
-                &(vault.borrowed.0 + borrow.0),
+                &(vault.borrowed.0 + borrow.0 - pay_amount.0),
                 token_info.decimals.clone(),
             );
         }
@@ -209,6 +212,7 @@ impl Contract {
                 vault.token_id.clone(),
                 Some(collateral_amount),
                 Some(borrow),
+                Some(pay_amount)
             ),
             max_borrowable: self.compute_max_borrowable_for_account(
                 account_id.clone(),
@@ -289,17 +293,24 @@ impl Contract {
         collateral_token_id: AccountId,
         collateral_amount: Option<U128>,
         borrow_amount: Option<U128>,
+        pay_amount: Option<U128>
     ) -> Price {
         let price = self.price_data.price(&collateral_token_id);
         let token_info = self.get_token_info(collateral_token_id.clone());
         let collateral_amount = collateral_amount.unwrap_or(U128(0));
         let borrow_amount = borrow_amount.unwrap_or(U128(0));
+        let pay_amount = pay_amount.unwrap_or(U128(0));
 
         let account_deposit = self.get_account_info(account_id.clone());
         let vault =
             account_deposit.get_vault_or_default(account_id.clone(), collateral_token_id.clone());
         let total_deposit = collateral_amount.0 + vault.deposited.0;
-        let total_borrow = borrow_amount.0 + vault.borrowed.0;
+        let mut total_borrow = borrow_amount.0 + vault.borrowed.0;
+        if total_borrow > pay_amount.0 {
+            total_borrow -= pay_amount.0;
+        } else {
+            total_borrow = 0;
+        }
         let total_borrow_value = U256::from(total_borrow);
         let min_required_collateral_value =
             total_borrow_value * token_info.collateral_ratio / COLLATERAL_RATIO_DIVISOR;
