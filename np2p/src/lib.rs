@@ -8,6 +8,7 @@ mod account_deposit;
 mod pool;
 mod utils;
 mod views;
+mod token_receiver;
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
@@ -264,7 +265,7 @@ impl Contract {
         initial_storage_usage = env::storage_usage();
         let tmp_pool = &mut self.pools[0];
         let tmp_account_id2 = AccountId::new_unchecked("e".repeat(64).to_string());
-        tmp_pool.register_account(&tmp_account_id2);
+        tmp_pool.internal_register_account(&tmp_account_id2);
         self.add_to_deposit_pools_list(&tmp_account_id2, 0u32);
         self.account_list.push(tmp_account_id2.clone());
         self.storage_usage_join_pool = env::storage_usage() - initial_storage_usage;
@@ -281,10 +282,10 @@ impl Contract {
     }
 
     #[payable]
-    pub fn borrow(&mut self, pool_id: u32, borrow_amount: U128, to: Option<AccountId>) {
+    pub fn borrow(&mut self, pool_id: u32, borrow_amount: U128) {
         let prev_storage = env::storage_usage();
         // Select target account.
-        let account_id = to.unwrap_or(env::predecessor_account_id());
+        let account_id = env::predecessor_account_id();
 
         self.abort_if_pause();
         self.abort_if_blacklisted(account_id.clone());
@@ -301,7 +302,7 @@ impl Contract {
         let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.borrow(
+            pool.internal_borrow(
                 &account_id,
                 &borrow_amount.0,
                 &lend_token_info,
@@ -335,6 +336,8 @@ impl Contract {
         self.abort_if_unsupported_token(lend_token_id.clone());
         self.abort_if_unsupported_token(collateral_token_id.clone());
 
+        //TODO: add up to total pool creation fee
+
         let account_id = env::predecessor_account_id();
         let prev_storage = env::storage_usage();
         let pool_id = self.pools.len() as u32;
@@ -350,8 +353,8 @@ impl Contract {
             fixed_interest_rate,
             liquidation_bonus,
         );
-        pool.register_account(&account_id);
-        pool.register_account(&self.foundation_id);
+        pool.internal_register_account(&account_id);
+        pool.internal_register_account(&self.foundation_id);
 
         self.pools.push(pool);
 
@@ -400,7 +403,7 @@ impl Contract {
         let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.withdraw_from_account(
+            pool.internal_withdraw_from_account(
                 &account_id,
                 &token_id,
                 amount.0,
@@ -412,6 +415,20 @@ impl Contract {
         }
 
         self.internal_send_tokens(pool_id, &token_id, &account_id, amount.0)
+    }
+
+    #[payable]
+    pub fn pay_loan(&mut self, pool_id: u32, amount: U128) {
+        let account_id = env::predecessor_account_id();
+        assert_one_yocto();
+        self.abort_if_pause();
+        self.abort_if_blacklisted(account_id.clone());
+        self.abort_if_pool_id_valid(pool_id.clone() as usize);
+        
+        {
+            let pool = &mut self.pools[pool_id as usize];
+            pool.internal_pay_loan(&account_id, amount.0);
+        }
     }
 
     #[payable]
@@ -439,7 +456,7 @@ impl Contract {
         
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.liquidate(liquidated_account_id.clone(), liquidated_borrow_amount.0, liquidator_account_id.clone(), &lend_token_info, &lend_token_price, &collateral_token_info, &collateral_token_price, self.foundation_id.clone(), self.liquidation_marginal);
+            pool.internal_liquidate(liquidated_account_id.clone(), liquidated_borrow_amount.0, liquidator_account_id.clone(), &lend_token_info, &lend_token_price, &collateral_token_info, &collateral_token_price, self.foundation_id.clone(), self.liquidation_marginal);
         }
 
         self.verify_storage(&liquidator_account_id, prev_usage, Some(env::attached_deposit()));
@@ -490,7 +507,7 @@ impl Contract {
 }
 
 impl Contract {
-    pub fn pay_loan(
+    pub fn internal_pay_loan(
         &mut self,
         pool_id: u32,
         account_id: &AccountId,
@@ -511,23 +528,21 @@ impl Contract {
         );
 
         let pool = &mut self.pools[pool_id as usize];
-        pool.pay_loan(account_id, pay_amount.0);
+        pool.internal_pay_loan(account_id, pay_amount.0);
     }
 
-    pub fn deposit(
+    pub fn internal_deposit(
         &mut self,
         pool_id: u32,
         account_id: &AccountId,
         token_id: &AssetId,
         amount: Balance,
     ) {
-        if pool_id >= self.pools.len() as u32 {
-            env::panic_str("pool_id out of bound");
-        }
+        self.abort_if_pool_id_valid(pool_id.clone() as usize);
 
         let prev_storage = env::storage_usage();
         let pool = &mut self.pools[pool_id.clone() as usize];
-        pool.deposit(account_id, token_id, amount.clone());
+        pool.internal_deposit(account_id, token_id, amount.clone());
         self.add_to_deposit_pools_list(account_id, pool_id);
         self.verify_storage(account_id, prev_storage, None);
     }

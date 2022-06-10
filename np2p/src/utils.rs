@@ -37,7 +37,7 @@ impl Contract {
             PromiseResult::Failed => {
                 // This reverts the changes from withdraw function.
                 // If account doesn't exit, deposits to the owner's account as lostfound.
-                self.deposit(pool_id, &receiver_id, &token_id, amount.0)
+                self.internal_deposit(pool_id, &receiver_id, &token_id, amount.0)
             }
         };
     }

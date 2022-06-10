@@ -55,7 +55,7 @@ impl AccountDeposit {
         account_deposit
     }
 
-    pub fn deposit_collateral(&mut self, amount: &Balance) {
+    pub fn internal_deposit_collateral(&mut self, amount: &Balance) {
         let mut current_deposit = self
             .deposits
             .get(&self.collateral_token_id.clone())
@@ -66,7 +66,7 @@ impl AccountDeposit {
     }
 
     //this does not take care of interest when user in a borrowing position
-    pub fn deposit_lend_token(&mut self, amount: &Balance, acc_interest_per_share: &Balance) {
+    pub fn internal_deposit_lend_token(&mut self, amount: &Balance, acc_interest_per_share: &Balance) {
         let mut current_deposit = self.get_token_deposit(&self.lend_token_id);
 
         self.last_lending_interest_reward_update_timestamp_sec = env::block_timestamp_ms() / 1000;
@@ -101,11 +101,11 @@ impl AccountDeposit {
     }
 
     pub fn update_account(&mut self, interest_rate: u64, acc_interest_per_share: &Balance) {
-        self.deposit_lend_token(&0u128, acc_interest_per_share);
+        self.internal_deposit_lend_token(&0u128, acc_interest_per_share);
         self.update_borrowing_interest(interest_rate);
     }
 
-    pub fn borrow(
+    pub fn internal_borrow(
         &mut self,
         amount: &Balance,
         lend_token_info: &TokenInfo,
@@ -196,7 +196,7 @@ impl AccountDeposit {
     }
 
     //return the amount withdrawn from the lend deposit token or collateral token, excluding interest if have
-    pub fn withdraw_from_account(
+    pub fn internal_withdraw_from_account(
         &mut self,
         token_id: &AccountId,
         amount: Balance,
@@ -270,7 +270,7 @@ impl AccountDeposit {
     }
 
     //this does not take care of interest when user in a borrowing position
-    pub fn deposit_lend_token_with_taking_interest(
+    pub fn internal_deposit_lend_token_with_taking_interest(
         &mut self,
         amount: &Balance,
         interest_rate: u64,
@@ -278,14 +278,14 @@ impl AccountDeposit {
     ) -> Balance {
         if self.borrow_amount > 0 {
             self.update_borrowing_interest(interest_rate);
-            self.deposit_lend_token(amount, acc_interest_per_share);
+            self.internal_deposit_lend_token(amount, acc_interest_per_share);
         } else {
-            self.deposit_lend_token(amount, acc_interest_per_share);
+            self.internal_deposit_lend_token(amount, acc_interest_per_share);
         }
         amount.clone()
     }
 
-    pub fn pay_loan(
+    pub fn internal_pay_loan(
         &mut self,
         pay_amount: Balance,
         acc_interest_per_share: Balance,
@@ -313,8 +313,10 @@ impl AccountDeposit {
         actual_borrow_paid -= self.borrow_amount;
 
         if remain > 0 {
-            self.deposit_lend_token(&remain, &acc_interest_per_share);
+            self.internal_deposit_lend_token(&remain, &acc_interest_per_share);
         }
+
+        self.reduce_lend_token_deposit(pay_amount.clone());
 
         (actual_borrow_paid, remain)
     }

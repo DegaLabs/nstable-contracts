@@ -3,17 +3,13 @@ use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{serde_json, PromiseOrValue};
 
 use crate::*;
-
-/// Message parameters to receive via token function call.
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 #[serde(untagged)]
 enum TokenReceiverMessage {
     /// Alternative to deposit + execute actions call.
-    Borrow {
-        borrow_amount: U128,
-        /// List of sequential actions.
-        receiver_id: Option<AccountId>,
+    Deposit {
+        pool_id: u32
     },
 }
 
@@ -34,21 +30,16 @@ impl FungibleTokenReceiver for Contract {
 
         self.abort_if_unsupported_token(token_in.clone());
         if msg.is_empty() {
-            // Simple deposit.
-            self.deposit_to_vault(&token_in, &amount.0, &sender_id);
-            PromiseOrValue::Value(U128(0))
+            env::panic_str("unsupported operation");
         } else {
             // instant swap
             let message =
                 serde_json::from_str::<TokenReceiverMessage>(&msg).expect("wrong message format");
             match message {
-                TokenReceiverMessage::Borrow {
-                    borrow_amount,
-                    receiver_id,
+                TokenReceiverMessage::Deposit {
+                    pool_id
                 } => {
-                    let receiver_id = receiver_id.unwrap_or(sender_id.clone());
-                    self.borrow(&token_in, amount.0, borrow_amount.0, receiver_id);
-                    // Even if send tokens fails, we don't return funds back to sender.
+                    self.internal_deposit(pool_id, &sender_id, &token_in, amount.0);
                     PromiseOrValue::Value(U128(0))
                 }
             }
