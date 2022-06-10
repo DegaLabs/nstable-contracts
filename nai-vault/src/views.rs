@@ -352,10 +352,6 @@ impl Contract {
         let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
         require!(limit != 0, "Cannot provide limit of 0.");
         let start_index = from_index.unwrap_or(0);
-        require!(
-            self.liquidation_history.len() > start_index,
-            "Out of bounds, please use a smaller from_index."
-        );
         self.liquidation_history
             .iter()
             .skip(start_index as usize)
@@ -368,10 +364,6 @@ impl Contract {
         let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
         require!(limit != 0, "Cannot provide limit of 0.");
         let start_index = from_index.unwrap_or(0);
-        require!(
-            self.liquidation_history.len() > start_index,
-            "Out of bounds, please use a smaller from_index."
-        );
         self.liquidation_history
             .iter()
             .skip(start_index as usize)
@@ -384,10 +376,6 @@ impl Contract {
         let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
         require!(limit != 0, "Cannot provide limit of 0.");
         let start_index = from_index.unwrap_or(0);
-        require!(
-            self.liquidation_history.len() > start_index,
-            "Out of bounds, please use a smaller from_index."
-        );
         self.liquidation_history
             .iter()
             .skip(start_index as usize)
@@ -403,10 +391,6 @@ impl Contract {
         let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
         require!(limit != 0, "Cannot provide limit of 0.");
         let start_index = from_index.unwrap_or(0);
-        require!(
-            self.account_list.len() > start_index,
-            "Out of bounds, please use a smaller from_index."
-        );
         self.account_list
             .iter()
             .skip(start_index as usize)
