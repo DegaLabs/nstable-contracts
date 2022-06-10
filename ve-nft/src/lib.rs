@@ -215,6 +215,16 @@ impl Contract {
 
         self.check_cost_and_refund(prev_usage);
     }
+
+    // #[payable]
+    // pub fn withdraw(&mut self, amount: U128) -> Promise {
+    //     assert_one_yocto();
+    //     let account_id = env::predecessor_account_id();
+    //     self.assert_token_id_owner(token_id.clone(), account_id.clone());
+    //     self.internal_unlock(&account_id, token_id, false);
+    //     Promise::new(self.locked_token.clone())
+    // }
+
     #[payable]
     pub fn unlock(&mut self, token_id: TokenId) -> Promise {
         assert_one_yocto();

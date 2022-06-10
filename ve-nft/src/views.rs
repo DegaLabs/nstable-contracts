@@ -17,6 +17,9 @@ pub struct MetaData {
     pub penalty_collector: AccountId,
     pub min_locked_amount: U128,
     pub early_withdraw_penalty_rate: u64,
+    pub total_deposit: Balance,
+    pub total_locked: Balance,
+    pub voting_power_supply: Balance
 }
 
 #[near_bindgen]
@@ -33,6 +36,9 @@ impl Contract {
             penalty_collector: self.penalty_collector.clone(),
             min_locked_amount: U128(self.min_locked_amount.clone()),
             early_withdraw_penalty_rate: self.early_withdraw_penalty_rate.into(),
+            total_deposit: self.total_deposit.into(),
+            total_locked: self.total_locked.into(),
+            voting_power_supply: self.voting_power_supply.into()
         }
     }
 
@@ -51,19 +57,24 @@ impl Contract {
         lock_info
     }
 
-    pub fn get_token_metadata_for_account(&self, account_id: AccountId) -> (Vec<TokenId>, Vec<LockInfo>) {
+    pub fn get_token_metadata_for_account(&self, account_id: AccountId) -> (Vec<TokenId>, Vec<LockInfo>, U128, U128, U128) {
         let mut ret: Vec<LockInfo> = vec![];
         let mut token_ids: Vec<TokenId> = vec![];
         let tokens = self.tokens.nft_tokens_for_owner(account_id.clone(), None, None);
+        let deposited: Balance = self.deposits.get(&account_id).unwrap_or(0);
+        let mut locked: Balance = 0;
+        let mut voting_power: Balance = 0;
 
         for token in &tokens {
             let metadata = token.metadata.as_ref().unwrap();
             let lock_info = self.unwrap_metadata(&metadata);
-            ret.push(lock_info);
+            ret.push(lock_info.clone());
             token_ids.push(token.token_id.clone());
+            locked += lock_info.locked_token_amount.0;
+            voting_power += lock_info.voting_power.0;
         }
         
-        (token_ids, ret)
+        (token_ids, ret, deposited.into(), locked.into(), voting_power.into())
     }
 
     pub fn get_voting_power_for_account(
