@@ -69,6 +69,7 @@ impl Contract {
         self.storage_accounts.insert(account_id, &storage_account);
 
         let storage_used = env::storage_usage() - init_storage;
+        let mut storage_account = self.storage_accounts.get(account_id).unwrap_or_default();
         storage_account.storage_usage += storage_used;
         self.storage_accounts.insert(account_id, &storage_account);
         self.assert_storage_usage(account_id);
@@ -145,13 +146,15 @@ impl StorageManagement for Contract {
     }
 
     fn storage_balance_bounds(&self) -> StorageBalanceBounds {
-        // let required_storage_balance = Balance::from(
-        //     self.base_storage_usage
-        //         + self.storage_usage_per_vault * (self.get_token_count() as u64),
-        // ) * env::storage_byte_cost();
+        let min = Balance::from(self.storage_usage_add_pool + self.storage_usage_add_pool)
+            * env::storage_byte_cost();
+        let max = Balance::from(
+            (self.storage_usage_add_pool as u128)
+                + (self.storage_usage_join_pool as u128) * (self.pools.len() as u128),
+        ) * env::storage_byte_cost();
         StorageBalanceBounds {
-            min: 0u128.into(),
-            max: Some(0u128.into()),
+            min: U128(min),
+            max: Some(U128(max)),
         }
     }
 

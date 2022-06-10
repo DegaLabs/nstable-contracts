@@ -34,6 +34,7 @@ const INTEREST_RATE_DIVISOR: u128 = 10000;
 const ACC_INTEREST_PER_SHARE_MULTIPLIER: u128 = 10u128.pow(8 as u32);
 const SECONDS_PER_YEAR: u128 = 365 * 86400;
 const LIQUIDATION_BONUS_DIVISOR: u128 = 10000;
+const LIQUIDATION_MARGINAL_DIVISOR: u128 = 10000;
 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
@@ -132,6 +133,8 @@ pub struct Contract {
     storage_accounts: LookupMap<AccountId, UserStorageUsage>,
     storage_usage_add_pool: StorageUsage,
     storage_usage_join_pool: StorageUsage,
+    account_list: Vec<AccountId>,
+    liquidation_marginal: u64   //how mujch in terms of % the treasury got
 }
 
 #[near_bindgen]
@@ -166,6 +169,8 @@ impl Contract {
             storage_accounts: LookupMap::new(StorageKey::UserStorage),
             storage_usage_add_pool: 0,
             storage_usage_join_pool: 0,
+            account_list: vec![],
+            liquidation_marginal: 5000
         };
 
         this.measure_account_storage_usage();
@@ -261,9 +266,11 @@ impl Contract {
         let tmp_account_id2 = AccountId::new_unchecked("e".repeat(64).to_string());
         tmp_pool.register_account(&tmp_account_id2);
         self.add_to_deposit_pools_list(&tmp_account_id2, 0u32);
+        self.account_list.push(tmp_account_id2.clone());
         self.storage_usage_join_pool = env::storage_usage() - initial_storage_usage;
 
         //clean out
+        self.account_list.pop();
         self.deposited_pools.remove(&tmp_account_id);
         self.deposited_pools.remove(&tmp_account_id2);
         self.created_pools.remove(&tmp_account_id);
@@ -432,7 +439,7 @@ impl Contract {
         
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.liquidate(liquidated_account_id.clone(), liquidated_borrow_amount.0, liquidator_account_id.clone(), &lend_token_info, &lend_token_price, &collateral_token_info, &collateral_token_price, self.foundation_id.clone());
+            pool.liquidate(liquidated_account_id.clone(), liquidated_borrow_amount.0, liquidator_account_id.clone(), &lend_token_info, &lend_token_price, &collateral_token_info, &collateral_token_price, self.foundation_id.clone(), self.liquidation_marginal);
         }
 
         self.verify_storage(&liquidator_account_id, prev_usage, Some(env::attached_deposit()));

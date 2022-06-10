@@ -252,6 +252,7 @@ impl Pool {
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
         foundation_id: AccountId,
+        liquidation_marginal: u64
     ) {
         self.update_acc_interest_per_share();
 
@@ -334,11 +335,9 @@ impl Pool {
             "invalid collateral ratio after liquidation"
         );
 
-        let collateral_to_liquidator = to_liquidate_collateral_amount_to_cover_liquidator
-            + (to_liquidate_collateral_amount - to_liquidate_collateral_amount_to_cover_liquidator)
-                / 2;
         let collateral_to_foundation =
-            to_liquidate_collateral_amount - to_liquidate_collateral_amount_to_cover_liquidator;
+            (to_liquidate_collateral_amount - to_liquidate_collateral_amount_to_cover_liquidator) * (liquidation_marginal as u128) / LIQUIDATION_MARGINAL_DIVISOR;
+        let collateral_to_liquidator = to_liquidate_collateral_amount - collateral_to_foundation.clone();
         liquidator_account_deposit.deposit_collateral(&collateral_to_liquidator);
 
         let mut foundation_account_deposit = self.get_account_deposit(&foundation_id);

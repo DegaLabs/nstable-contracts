@@ -1,5 +1,5 @@
 use crate::*;
-
+use near_sdk::require;
 #[near_bindgen]
 impl Contract {
     pub(crate) fn assert_governance(&self) {
@@ -12,6 +12,12 @@ impl Contract {
         if env::predecessor_account_id() != self.price_feeder {
             env::panic_str("This method can be called only by price feeder")
         }
+    }
+
+    pub fn set_liquidation_marginal(&mut self, liquidation_marginal: u64) {
+        self.assert_governance();
+        require!((liquidation_marginal as u128) < LIQUIDATION_MARGINAL_DIVISOR, "too high");
+        self.liquidation_marginal = liquidation_marginal;
     }
 
     pub fn set_governance(&mut self, governance: AccountId) {
