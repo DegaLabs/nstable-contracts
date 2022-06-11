@@ -93,6 +93,10 @@ pub fn compute_cr(
     let collateral_value = compute_token_value(collateral_amount.clone(), collateral_price);
     let borrow_value = compute_token_value(borrow_amount.clone(), borrow_price);
 
+    if borrow_value.as_u128() == 0 {
+        return 10000000 * COLLATERAL_RATIO_DIVISOR as u64; //infinite number
+    }
+
     let cr = U256::from(collateral_value)
         * U256::from(10u128.pow(borrow_decimals as u32))
         * U256::from(COLLATERAL_RATIO_DIVISOR)
