@@ -24,9 +24,7 @@
       "eth": "weth.fakes.testnet",
       "usdc": "usdc.fakes.testnet"
     },
-    "mainnet": {
-
-    }
+    "mainnet": {}
   },
   "exchanges": [
     "binance",
@@ -37,5 +35,9 @@
     "huobi"
   ],
   "feed_period": 300,
-  "network": "testnet"
+  "network": "testnet",
+  "targetContracts": [
+    "naistable.deganstable.testnet",
+    "np2pv1.deganstable.testnet"
+  ]
 }
