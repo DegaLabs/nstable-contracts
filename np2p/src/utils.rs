@@ -76,6 +76,12 @@ pub fn compute_token_value(amount: Balance, price: &Price) -> U256 {
         / U256::from(10u128.pow(price.decimals as u32));
 }
 
+pub fn compute_token_value_usd(amount: Balance, decimals: u8, price: &Price) -> U128 {
+    let ret = U256::from(amount.clone()) * U256::from(price.multiplier.0)
+        / U256::from(10u128.pow(decimals as u32));
+    U128(ret.as_u128())
+}
+
 pub fn compute_cr(
     collateral_amount: Balance,
     collateral_decimals: u8,

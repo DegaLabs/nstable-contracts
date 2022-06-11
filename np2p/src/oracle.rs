@@ -147,7 +147,7 @@ impl PriceData {
     pub fn assert_price_data(&self) {
         for price in &self.prices {
             let p = price.price.unwrap_or_default();
-            if p.decimals > 18 || p.multiplier.0 == 0 {
+            if p.decimals != 8 || p.multiplier.0 == 0 {
                 env::panic_str("invalid price data");
             } 
         }

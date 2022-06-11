@@ -103,7 +103,7 @@ impl Pool {
             );
         }
         log!("reading account deposit for {}", account_id);
-        let mut account_deposit = self.get_account_deposit(account_id);
+        let mut account_deposit = self.get_account_deposit_or_revert(account_id);
         log!("success reading account deposit");
         if token_id.clone() == self.lend_token_id {
             if self.total_lend_asset_deposit == 0 {
@@ -136,6 +136,10 @@ impl Pool {
             self.collateral_token_id.clone(),
         )
     }
+
+    pub fn get_account_deposit_or_revert(&self, account_id: &AccountId) -> AccountDeposit {
+        self.account_deposits.get(account_id).expect("account not registered")
+    }
     pub fn internal_borrow(
         &mut self,
         account_id: &AccountId,
@@ -145,6 +149,8 @@ impl Pool {
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
     ) {
+        self.update_acc_interest_per_share();
+
         require!(
             amount.clone() >= self.min_lend_token_borrow,
             "lower than min borrow"
@@ -166,9 +172,8 @@ impl Pool {
             ));
         }
 
-        self.update_acc_interest_per_share();
 
-        let mut account_deposit = self.get_account_deposit(account_id);
+        let mut account_deposit = self.get_account_deposit_or_revert(account_id);
         let actual_borrow_amount = account_deposit.internal_borrow(
             amount,
             lend_token_info,
@@ -217,7 +222,7 @@ impl Pool {
         collateral_token_price: &Price,
     ) {
         self.update_acc_interest_per_share();
-        let mut account_deposit = self.get_account_deposit(account_id);
+        let mut account_deposit = self.get_account_deposit_or_revert(account_id);
         account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
 
         let withdrawn_amount_from_deposit = account_deposit.internal_withdraw_from_account(
@@ -246,7 +251,7 @@ impl Pool {
 
     pub fn internal_pay_loan(&mut self, account_id: &AccountId, pay_amount: Balance) {
         self.update_acc_interest_per_share();
-        let mut account_deposit = self.get_account_deposit(account_id);
+        let mut account_deposit = self.get_account_deposit_or_revert(account_id);
         account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
         let (paid_borrow, added_liquidity) =
             account_deposit.internal_pay_loan(pay_amount, self.acc_interest_per_share.clone());
@@ -270,7 +275,7 @@ impl Pool {
     ) {
         self.update_acc_interest_per_share();
 
-        let mut liquidator_account_deposit = self.get_account_deposit(&liquidator_account_id);
+        let mut liquidator_account_deposit = self.get_account_deposit_or_revert(&liquidator_account_id);
         liquidator_account_deposit
             .update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
         let liquidator_account_lend_token_deposit_amount =
@@ -285,7 +290,7 @@ impl Pool {
             "cannot liquidate if liquidator maker owes the pool"
         );
 
-        let mut liquidated_account_deposit = self.get_account_deposit(&liquidated_account_id);
+        let mut liquidated_account_deposit = self.get_account_deposit_or_revert(&liquidated_account_id);
         let borrowed_before = liquidated_account_deposit.borrow_amount;
         liquidated_account_deposit
             .update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
@@ -295,6 +300,9 @@ impl Pool {
             lend_token_price,
             collateral_token_info,
             collateral_token_price,
+            None,
+            None,
+            None
         );
         require!(
             liquidated_account_cr < self.min_cr,
@@ -343,6 +351,9 @@ impl Pool {
             lend_token_price,
             collateral_token_info,
             collateral_token_price,
+            None,
+            None,
+            None
         );
         require!(
             liquidated_account_cr < self.min_cr,
@@ -357,7 +368,7 @@ impl Pool {
             to_liquidate_collateral_amount - collateral_to_foundation.clone();
         liquidator_account_deposit.internal_deposit_collateral(&collateral_to_liquidator);
 
-        let mut foundation_account_deposit = self.get_account_deposit(&foundation_id);
+        let mut foundation_account_deposit = self.get_account_deposit_or_revert(&foundation_id);
         foundation_account_deposit.internal_deposit_collateral(&collateral_to_foundation);
 
         //save accounts
@@ -398,6 +409,9 @@ impl Pool {
         lend_token_price: &Price,
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
+        collateral_amount: Option<Balance>,
+        borrow: Option<Balance>,    //borrow more
+        pay_amount: Option<Balance>,    //pay back
     ) -> u64 {
         let account_deposit = self.get_account_deposit(&account_id);
         account_deposit.compute_current_cr(
@@ -405,6 +419,9 @@ impl Pool {
             lend_token_price,
             collateral_token_info,
             collateral_token_price,
+            collateral_amount,
+            borrow,
+            pay_amount,
             self.fixed_interest_rate,
         )
     }
@@ -446,6 +463,32 @@ impl Pool {
                 / (SECONDS_PER_YEAR * INTEREST_RATE_DIVISOR);
         return generated_interest * ACC_INTEREST_PER_SHARE_MULTIPLIER
             / self.total_lend_asset_deposit;
+    }
+
+    pub fn get_pending_unpaid_lending_interest_profit(
+        &self,
+        account_id: &AccountId
+    ) -> Balance {
+        let account_deposit = self.get_account_deposit(account_id);
+        account_deposit.get_pending_unpaid_lending_interest_profit(&self.get_current_acc_interest_per_share())
+    }
+
+    pub fn get_pending_total_lending_interest_profit(
+        &self,
+        account_id: &AccountId
+    ) -> Balance {
+        let account_deposit = self.get_account_deposit(account_id);
+        account_deposit.get_pending_total_lending_interest_profit(&self.get_current_acc_interest_per_share())
+    }
+
+    pub fn get_pending_unpaid_borrowing_interest(&self, account_id: &AccountId) -> Balance {
+        let account_deposit = self.get_account_deposit(account_id);
+        account_deposit.get_pending_unpaid_borrowing_interest(self.fixed_interest_rate)
+    }
+
+    pub fn get_pending_total_borrowing_interest(&self, account_id: &AccountId) -> Balance {
+        let account_deposit = self.get_account_deposit(account_id);
+        account_deposit.get_pending_total_borrowing_interest(self.fixed_interest_rate)
     }
 }
 

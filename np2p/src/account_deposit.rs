@@ -192,13 +192,19 @@ impl AccountDeposit {
         lend_token_price: &Price,
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
+        collateral_amount: Option<Balance>,
+        borrow: Option<Balance>,    //borrow more
+        pay_amount: Option<Balance>,    //pay back
         interest_rate: u64,
     ) -> u64 {
+        let collateral_amount = collateral_amount.unwrap_or(0);
+        let borrow = borrow.unwrap_or(0);
+        let pay_amount = pay_amount.unwrap_or(0);
         let cr = compute_cr(
-            self.get_token_deposit(&self.collateral_token_id),
+            self.get_token_deposit(&self.collateral_token_id) + collateral_amount.clone(),
             collateral_token_info.decimals,
             collateral_token_price,
-            self.borrow_amount + self.get_interest_owed(interest_rate),
+            self.borrow_amount + self.get_interest_owed(interest_rate) + borrow.clone() - pay_amount.clone(),
             lend_token_price,
             lend_token_info.decimals,
         );
@@ -387,7 +393,11 @@ impl AccountDeposit {
         let collateral_token_value =
             compute_token_value(collateral_token_deposit.clone(), collateral_token_price);
 
-        let max_borrowable = collateral_token_value * U256::from(10u128.pow(lend_token_info.decimals as u32)) * U256::from(10u128.pow(lend_token_price.decimals as u32)) / (U256::from(10u128.pow(collateral_token_info.decimals as u32)) * U256::from(lend_token_price.multiplier.0));
+        let max_borrowable = collateral_token_value
+            * U256::from(10u128.pow(lend_token_info.decimals as u32))
+            * U256::from(10u128.pow(lend_token_price.decimals as u32))
+            / (U256::from(10u128.pow(collateral_token_info.decimals as u32))
+                * U256::from(lend_token_price.multiplier.0));
 
         let mut max_borrowable = max_borrowable.as_u128();
         max_borrowable = max_borrowable * COLLATERAL_RATIO_DIVISOR / (cr as u128);
@@ -403,5 +413,47 @@ impl AccountDeposit {
 
     pub fn get_owned_lend_token_amount(&self) -> Balance {
         self.borrow_amount + self.unpaid_borrowing_interest
+    }
+
+    pub fn get_pending_unpaid_lending_interest_profit(
+        &self,
+        acc_interest_per_share: &Balance,
+    ) -> Balance {
+        let current_deposit = self.get_token_deposit(&self.lend_token_id);
+
+        let total_interest_reward = (U256::from(current_deposit)
+            * U256::from(acc_interest_per_share.clone())
+            / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
+        .as_u128();
+        let unpaid_lending_interest_profit = self.unpaid_lending_interest_profit
+            + total_interest_reward
+            - self.lending_interest_profit_debt;
+        return unpaid_lending_interest_profit;
+    }
+
+    pub fn get_pending_total_lending_interest_profit(
+        &self,
+        acc_interest_per_share: &Balance,
+    ) -> Balance {
+        let current_deposit = self.get_token_deposit(&self.lend_token_id);
+
+        let total_interest_reward = (U256::from(current_deposit)
+            * U256::from(acc_interest_per_share.clone())
+            / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
+        .as_u128();
+        let total_lending_interest_profit = self.total_lending_interest_profit
+            + total_interest_reward
+            - self.lending_interest_profit_debt;
+        return total_lending_interest_profit;
+    }
+
+    pub fn get_pending_unpaid_borrowing_interest(&self, interest_rate: u64) -> Balance {
+        let unrecorded = self.compute_unrecorded_interest(interest_rate);
+        self.unpaid_borrowing_interest + unrecorded
+    }
+
+    pub fn get_pending_total_borrowing_interest(&self, interest_rate: u64) -> Balance {
+        let unrecorded = self.compute_unrecorded_interest(interest_rate);
+        self.total_borrowing_interest + unrecorded
     }
 }
