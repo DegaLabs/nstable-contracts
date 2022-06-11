@@ -289,6 +289,31 @@ impl Contract {
     }
 
     #[payable]
+    pub fn push_to_account_list(&mut self, account_ids: Vec<AccountId>) {
+        self.assert_governance();
+        let prev_storage = env::storage_usage();
+        for account_id in account_ids {
+            self.account_list.push(account_id.clone());
+        }
+        let storage_cost = env::storage_usage()
+            .checked_sub(prev_storage)
+            .unwrap_or_default() as Balance
+            * env::storage_byte_cost();
+
+        let refund = env::attached_deposit().checked_sub(storage_cost).expect(
+            format!(
+                "ERR_STORAGE_DEPOSIT need {}, attatched {}",
+                storage_cost,
+                env::attached_deposit()
+            )
+            .as_str(),
+        );
+        if refund > 0 {
+            Promise::new(env::predecessor_account_id()).transfer(refund);
+        }
+    }
+
+    #[payable]
     pub fn borrow(&mut self, pool_id: u32, borrow_amount: U128) {
         require!(borrow_amount.0 > 0, "borrow_amount > 0");
         let prev_storage = env::storage_usage();

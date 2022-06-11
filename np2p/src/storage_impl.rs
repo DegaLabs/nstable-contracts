@@ -62,7 +62,9 @@ impl Contract {
         amount: &Balance,
     ) -> Balance {
         let init_storage = env::storage_usage();
-
+        if !self.storage_accounts.contains_key(account_id) {
+            self.account_list.push(account_id.clone());
+        }
         let mut storage_account = self.storage_accounts.get(account_id).unwrap_or_default();
         storage_account.near_amount += amount;
 
