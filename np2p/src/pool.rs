@@ -1,11 +1,9 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{UnorderedMap};
-use near_sdk::json_types::{U128};
+use near_sdk::collections::UnorderedMap;
+use near_sdk::json_types::U128;
 use near_sdk::serde::{Deserialize, Serialize};
-use near_sdk::{
-    env, require, AccountId, Balance,
-    PanicOnDefault,
-};
+use near_sdk::{env, log, require, AccountId, Balance, PanicOnDefault};
+use std::collections::HashMap;
 
 use crate::*;
 use utils::*;
@@ -92,15 +90,21 @@ impl Pool {
         }
     }
 
-    pub fn internal_deposit(&mut self, account_id: &AccountId, token_id: &AssetId, amount: Balance) {
+    pub fn internal_deposit(
+        &mut self,
+        account_id: &AccountId,
+        token_id: &AssetId,
+        amount: Balance,
+    ) {
         if token_id.clone() == self.lend_token_id.clone() {
             require!(
                 amount >= self.min_lend_token_deposit,
                 "lower than min deposit"
             );
         }
+        log!("reading account deposit for {}", account_id);
         let mut account_deposit = self.get_account_deposit(account_id);
-
+        log!("success reading account deposit");
         if token_id.clone() == self.lend_token_id {
             if self.total_lend_asset_deposit == 0 {
                 self.last_acc_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
@@ -122,14 +126,15 @@ impl Pool {
     }
 
     pub fn get_account_deposit(&self, account_id: &AccountId) -> AccountDeposit {
-        self.account_deposits
-            .get(account_id)
-            .unwrap_or(AccountDeposit::new(
-                self.pool_id.clone(),
-                account_id.clone(),
-                self.lend_token_id.clone(),
-                self.collateral_token_id.clone(),
-            ))
+        if self.account_deposits.get(account_id).is_some() {
+            return self.account_deposits.get(account_id).unwrap();
+        }
+        AccountDeposit::new(
+            self.pool_id.clone(),
+            account_id.clone(),
+            self.lend_token_id.clone(),
+            self.collateral_token_id.clone(),
+        )
     }
     pub fn internal_borrow(
         &mut self,
@@ -183,13 +188,22 @@ impl Pool {
     }
 
     pub fn internal_register_account(&mut self, account_id: &AccountId) {
-        let account_deposit = AccountDeposit::new(
-            0,
+        log!(
+            "creating default account {}, {}, {}",
             account_id.clone(),
             self.lend_token_id.clone(),
-            self.collateral_token_id.clone(),
+            self.collateral_token_id.clone()
         );
-        self.account_deposits.insert(account_id, &account_deposit);
+        if self.account_deposits.get(account_id).is_none() {
+            let account_deposit = AccountDeposit::new(
+                0,
+                account_id.clone(),
+                self.lend_token_id.clone(),
+                self.collateral_token_id.clone(),
+            );
+            log!("done creating default account");
+            self.account_deposits.insert(account_id, &account_deposit);
+        }
     }
 
     pub fn internal_withdraw_from_account(
@@ -252,7 +266,7 @@ impl Pool {
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
         foundation_id: AccountId,
-        liquidation_marginal: u64
+        liquidation_marginal: u64,
     ) {
         self.update_acc_interest_per_share();
 
@@ -335,9 +349,12 @@ impl Pool {
             "invalid collateral ratio after liquidation"
         );
 
-        let collateral_to_foundation =
-            (to_liquidate_collateral_amount - to_liquidate_collateral_amount_to_cover_liquidator) * (liquidation_marginal as u128) / LIQUIDATION_MARGINAL_DIVISOR;
-        let collateral_to_liquidator = to_liquidate_collateral_amount - collateral_to_foundation.clone();
+        let collateral_to_foundation = (to_liquidate_collateral_amount
+            - to_liquidate_collateral_amount_to_cover_liquidator)
+            * (liquidation_marginal as u128)
+            / LIQUIDATION_MARGINAL_DIVISOR;
+        let collateral_to_liquidator =
+            to_liquidate_collateral_amount - collateral_to_foundation.clone();
         liquidator_account_deposit.internal_deposit_collateral(&collateral_to_liquidator);
 
         let mut foundation_account_deposit = self.get_account_deposit(&foundation_id);
@@ -390,6 +407,34 @@ impl Pool {
             collateral_token_price,
             self.fixed_interest_rate,
         )
+    }
+
+    pub fn compute_max_borrowable_for_account(
+        &self,
+        account_id: &AccountId,
+        lend_token_info: &TokenInfo,
+        lend_token_price: &Price,
+        collateral_token_info: &TokenInfo,
+        collateral_token_price: &Price,
+        additional_collateral_amount: Option<Balance>
+    ) -> Balance {
+        let account_deposit = self.get_account_deposit(account_id);
+        let max_borrowable = account_deposit.compute_max_borrowable(lend_token_info, lend_token_price, collateral_token_info, collateral_token_price, additional_collateral_amount, self.fixed_interest_rate, self.min_cr);
+        let max_of_pool = self.get_max_borrowable_of_pool();
+        if max_borrowable > max_of_pool {
+            return max_of_pool
+        }
+        max_borrowable
+    }
+
+    pub fn get_max_borrowable_of_pool(&self) -> Balance {
+        let max_of_pool = self.total_lend_asset_deposit * self.max_utilization as u128 / UTILIZATION_DIVISOR;
+        max_of_pool - self.total_borrow
+    }
+
+    pub fn get_deposits(&self, account_id: &AccountId) -> HashMap<AssetId, U128> {
+        let account_deposit = self.get_account_deposit(account_id);
+        account_deposit.get_deposits()
     }
 
     pub fn get_current_acc_interest_per_share(&self) -> Balance {

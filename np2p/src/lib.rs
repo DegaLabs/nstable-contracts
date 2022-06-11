@@ -15,7 +15,7 @@ use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, near_bindgen, require, AccountId, Balance, BorshStorageKey,
+    assert_one_yocto, env, near_bindgen, require, AccountId, Balance, BorshStorageKey, log,
     PanicOnDefault, Promise, StorageUsage,
 };
 
@@ -261,17 +261,24 @@ impl Contract {
         self.add_to_deposit_pools_list(&tmp_account_id, 0u32);
 
         self.storage_usage_add_pool = env::storage_usage() - initial_storage_usage;
-
+        log!("accessing to pool 0");
         initial_storage_usage = env::storage_usage();
         let tmp_pool = &mut self.pools[0];
+        
+        
+        log!("accessing to pool 0 success");
         let tmp_account_id2 = AccountId::new_unchecked("e".repeat(64).to_string());
+        log!("start internal_register_account to pool 0");
         tmp_pool.internal_register_account(&tmp_account_id2);
+        log!("internal_register_account to pool 0");
         self.add_to_deposit_pools_list(&tmp_account_id2, 0u32);
         self.account_list.push(tmp_account_id2.clone());
-        self.storage_usage_join_pool = env::storage_usage() - initial_storage_usage;
 
+        self.storage_usage_join_pool = env::storage_usage() - initial_storage_usage;
+        log!("storage_usage_join_pool to pool 0");
         //clean out
         self.account_list.pop();
+        log!("self.account_list.pop()");
         self.deposited_pools.remove(&tmp_account_id);
         self.deposited_pools.remove(&tmp_account_id2);
         self.created_pools.remove(&tmp_account_id);
@@ -283,6 +290,7 @@ impl Contract {
 
     #[payable]
     pub fn borrow(&mut self, pool_id: u32, borrow_amount: U128) {
+        require!(borrow_amount.0 > 0, "borrow_amount > 0");
         let prev_storage = env::storage_usage();
         // Select target account.
         let account_id = env::predecessor_account_id();
@@ -321,18 +329,26 @@ impl Contract {
         &mut self,
         lend_token_id: AssetId,
         collateral_token_id: AssetId,
-        min_cr: u64,
-        max_utilization: u64,
-        min_lend_token_deposit: U128,
-        min_lend_token_borrow: U128,
-        fixed_interest_rate: u64,
-        liquidation_bonus: u64,
+        min_cr: Option<u64>,
+        max_utilization: Option<u64>,
+        min_lend_token_deposit: Option<U128>,
+        min_lend_token_borrow: Option<U128>,
+        fixed_interest_rate: Option<u64>,
+        liquidation_bonus: Option<u64>,
     ) {
         let attached_deposit = env::attached_deposit();
         require!(
             attached_deposit >= self.pool_creation_fee,
             "!pool_creation_fee"
         );
+
+        let min_cr = min_cr.unwrap_or(15000);
+        let max_utilization = max_utilization.unwrap_or(9000);
+        let min_lend_token_deposit = min_lend_token_deposit.unwrap_or(U128(0));
+        let min_lend_token_borrow = min_lend_token_borrow.unwrap_or(U128(0));
+        let fixed_interest_rate = fixed_interest_rate.unwrap_or(1000);
+        let liquidation_bonus = liquidation_bonus.unwrap_or(1000);
+
         self.abort_if_unsupported_token(lend_token_id.clone());
         self.abort_if_unsupported_token(collateral_token_id.clone());
 
@@ -376,7 +392,7 @@ impl Contract {
 
         self.add_to_created_pools_list(&account_id, pool_id.clone());
         self.add_to_deposit_pools_list(&account_id, pool_id.clone());
-
+        log!("verify_storage {}, {}", env::storage_usage() - prev_storage, env::storage_usage());
         self.verify_storage(
             &account_id,
             prev_storage,
@@ -554,9 +570,8 @@ impl Contract {
         attached_deposit: Option<Balance>,
     ) {
         let attached_deposit = attached_deposit.unwrap_or(0);
-        let storage_cost = self.storage_cost(prev_storage);
         let mut storage_account = self.get_storage_account_unwrap(account_id);
-        storage_account.storage_usage += storage_cost as u64;
+        storage_account.storage_usage += env::storage_usage() - prev_storage;
         storage_account.near_amount += attached_deposit;
         self.storage_accounts.insert(account_id, &storage_account);
         self.assert_storage_usage(account_id);

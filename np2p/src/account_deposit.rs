@@ -1,8 +1,8 @@
+use crate::*;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::UnorderedMap;
-use near_sdk::{env, require, AccountId, Balance, PanicOnDefault};
-
-use crate::*;
+use near_sdk::{env, log, require, AccountId, Balance, PanicOnDefault};
+use std::collections::HashMap;
 use utils::*;
 
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
@@ -33,12 +33,15 @@ impl AccountDeposit {
         lend_token_id: AssetId,
         collateral_token_id: AssetId,
     ) -> AccountDeposit {
+        log!("account deposit:: new");
         let mut account_deposit = AccountDeposit {
             pool_id: pool_id.clone(),
             owner_id: owner_id.clone(),
             lend_token_id: lend_token_id.clone(),
             collateral_token_id: collateral_token_id.clone(),
-            deposits: UnorderedMap::new(format!("d{}", pool_id.clone()).as_bytes()),
+            deposits: UnorderedMap::new(
+                format!("d{}{}", pool_id.clone(), owner_id.clone()).as_bytes(),
+            ),
             borrow_amount: 0,
             lending_interest_profit_debt: 0,
             unpaid_lending_interest_profit: 0,
@@ -48,7 +51,9 @@ impl AccountDeposit {
             total_borrowing_interest: 0,
             last_borrowing_interest_update_timestamp_sec: 0,
         };
+        log!("account deposit:: inserting");
         account_deposit.deposits.insert(&lend_token_id, &0u128);
+        log!("account deposit:: inserting 2");
         account_deposit
             .deposits
             .insert(&collateral_token_id, &0u128);
@@ -66,7 +71,11 @@ impl AccountDeposit {
     }
 
     //this does not take care of interest when user in a borrowing position
-    pub fn internal_deposit_lend_token(&mut self, amount: &Balance, acc_interest_per_share: &Balance) {
+    pub fn internal_deposit_lend_token(
+        &mut self,
+        amount: &Balance,
+        acc_interest_per_share: &Balance,
+    ) {
         let mut current_deposit = self.get_token_deposit(&self.lend_token_id);
 
         self.last_lending_interest_reward_update_timestamp_sec = env::block_timestamp_ms() / 1000;
@@ -135,6 +144,7 @@ impl AccountDeposit {
             lend_token_price,
             collateral_token_info,
             collateral_token_price,
+            None,
             interest_rate,
             min_cr,
         );
@@ -339,6 +349,19 @@ impl AccountDeposit {
         self.deposits.get(token_id).unwrap_or(0u128)
     }
 
+    pub fn get_deposits(&self) -> HashMap<AssetId, U128> {
+        let mut ret = HashMap::<AssetId, U128>::new();
+        ret.insert(
+            self.lend_token_id.clone(),
+            U128(self.get_token_deposit(&self.lend_token_id)),
+        );
+        ret.insert(
+            self.collateral_token_id.clone(),
+            U128(self.get_token_deposit(&self.collateral_token_id)),
+        );
+        ret
+    }
+
     pub fn get_interest_owed(&self, interest_rate: u64) -> Balance {
         let mut unpaid_interest = self.unpaid_borrowing_interest;
         if self.borrow_amount > 0 {
@@ -353,20 +376,19 @@ impl AccountDeposit {
         lend_token_price: &Price,
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
+        additional_collateral: Option<Balance>,
         interest_rate: u64,
         cr: u64,
     ) -> Balance {
-        let lend_token_deposit = self.get_token_deposit(&self.lend_token_id);
-        let collateral_token_deposit = self.get_token_deposit(&self.collateral_token_id);
+        let mut collateral_token_deposit = self.get_token_deposit(&self.collateral_token_id);
+        let additional_collateral = additional_collateral.unwrap_or(0);
+        collateral_token_deposit += additional_collateral.clone();
 
-        let lend_token_value = compute_token_value(lend_token_deposit.clone(), lend_token_price);
         let collateral_token_value =
             compute_token_value(collateral_token_deposit.clone(), collateral_token_price);
 
-        let max_borrowable = collateral_token_value
-            * U256::from(10u128.pow(lend_token_info.decimals as u32))
-            * U256::from(10u128.pow(lend_token_info.decimals as u32))
-            / (U256::from(10u128.pow(collateral_token_info.decimals as u32)) * lend_token_value);
+        let max_borrowable = collateral_token_value * U256::from(10u128.pow(lend_token_info.decimals as u32)) * U256::from(10u128.pow(lend_token_price.decimals as u32)) / (U256::from(10u128.pow(collateral_token_info.decimals as u32)) * U256::from(lend_token_price.multiplier.0));
+
         let mut max_borrowable = max_borrowable.as_u128();
         max_borrowable = max_borrowable * COLLATERAL_RATIO_DIVISOR / (cr as u128);
         let interest_owed = self.get_interest_owed(interest_rate);

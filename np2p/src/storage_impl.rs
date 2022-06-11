@@ -79,10 +79,11 @@ impl Contract {
 
     pub fn assert_storage_usage(&self, account_id: &AccountId) {
         let storage_account = self.storage_accounts.get(account_id).unwrap_or_default();
+        let fee_storage = self.compute_storage_usage_near(account_id.clone());
         assert!(
-            self.compute_storage_usage_near(account_id.clone()).0 <= storage_account.near_amount,
+            fee_storage.0 <= storage_account.near_amount,
             "{}",
-            "insufficient near deposit"
+            format!("insufficient near deposit {}, {}, {}", fee_storage.0, storage_account.near_amount, storage_account.storage_usage)
         );
     }
 }
