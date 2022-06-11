@@ -34,14 +34,15 @@ impl AccountDeposit {
         collateral_token_id: AssetId,
     ) -> AccountDeposit {
         log!("account deposit:: new");
-        let mut account_deposit = AccountDeposit {
+        let account_deposit = AccountDeposit {
             pool_id: pool_id.clone(),
             owner_id: owner_id.clone(),
             lend_token_id: lend_token_id.clone(),
             collateral_token_id: collateral_token_id.clone(),
-            deposits: UnorderedMap::new(
-                format!("d{}{}", pool_id.clone(), owner_id.clone()).as_bytes(),
-            ),
+            deposits: UnorderedMap::new(StorageKey::AccountDeposit {
+                pool_id: pool_id.clone(),
+                account_id: owner_id.clone(),
+            }),
             borrow_amount: 0,
             lending_interest_profit_debt: 0,
             unpaid_lending_interest_profit: 0,
@@ -52,11 +53,9 @@ impl AccountDeposit {
             last_borrowing_interest_update_timestamp_sec: 0,
         };
         log!("account deposit:: inserting");
-        account_deposit.deposits.insert(&lend_token_id, &0u128);
-        log!("account deposit:: inserting 2");
-        account_deposit
-            .deposits
-            .insert(&collateral_token_id, &0u128);
+        // account_deposit.deposits.insert(&lend_token_id, &0u128);
+        // log!("account deposit:: inserting 2");
+        // account_deposit.deposits.insert(&collateral_token_id, &0u128);
         account_deposit
     }
 
@@ -193,8 +192,8 @@ impl AccountDeposit {
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
         collateral_amount: Option<Balance>,
-        borrow: Option<Balance>,    //borrow more
-        pay_amount: Option<Balance>,    //pay back
+        borrow: Option<Balance>,     //borrow more
+        pay_amount: Option<Balance>, //pay back
         interest_rate: u64,
     ) -> u64 {
         let collateral_amount = collateral_amount.unwrap_or(0);
@@ -204,7 +203,8 @@ impl AccountDeposit {
             self.get_token_deposit(&self.collateral_token_id) + collateral_amount.clone(),
             collateral_token_info.decimals,
             collateral_token_price,
-            self.borrow_amount + self.get_interest_owed(interest_rate) + borrow.clone() - pay_amount.clone(),
+            self.borrow_amount + self.get_interest_owed(interest_rate) + borrow.clone()
+                - pay_amount.clone(),
             lend_token_price,
             lend_token_info.decimals,
         );

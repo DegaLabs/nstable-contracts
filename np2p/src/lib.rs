@@ -47,6 +47,7 @@ enum StorageKey {
     DepositedPools,
     BorrowPools,
     UserStorage,
+    AccountDeposit {pool_id: u32, account_id: AccountId}
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -184,21 +185,23 @@ impl Contract {
     }
 
     #[payable]
-    pub fn add_new_supported_token(&mut self, token_id: AccountId, decimals: u8) {
+    pub fn add_new_supported_tokens(&mut self, token_ids: Vec<AccountId>, decimals: Vec<u8>) {
         self.assert_governance();
-        require!(
-            !self.is_token_supported(&token_id),
-            "token already supported"
-        );
         let prev_storage = env::storage_usage();
-        self.supported_tokens.insert(
-            &token_id,
-            &TokenInfo {
-                token_id: token_id.clone(),
-                decimals: decimals,
-            },
-        );
-        self.token_list.push(token_id.clone());
+        for i in 0..token_ids.len() {
+            require!(
+                !self.is_token_supported(&token_ids[i]),
+                "token already supported"
+            );
+            self.supported_tokens.insert(
+                &token_ids[i],
+                &TokenInfo {
+                    token_id: token_ids[i].clone(),
+                    decimals: decimals[i],
+                },
+            );
+            self.token_list.push(token_ids[i].clone());
+        }
         let storage_cost = env::storage_usage()
             .checked_sub(prev_storage)
             .unwrap_or_default() as Balance
