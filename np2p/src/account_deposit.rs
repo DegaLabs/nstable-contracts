@@ -103,8 +103,8 @@ impl AccountDeposit {
             interest = self.compute_unrecorded_interest(interest_rate);
             self.total_borrowing_interest += interest;
             self.unpaid_borrowing_interest += interest;
-            self.last_borrowing_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
         }
+        self.last_borrowing_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
         interest
     }
 
@@ -127,6 +127,7 @@ impl AccountDeposit {
 
         let deposit_amount = self.get_token_deposit(&self.lend_token_id);
         let mut borrow_amount = amount.clone();
+        log!("borrow_amount {}", borrow_amount);
         if deposit_amount > 0 {
             if deposit_amount > amount.clone() {
                 borrow_amount = 0;
@@ -137,6 +138,7 @@ impl AccountDeposit {
                 self.deposits.insert(&self.lend_token_id, &0u128);
             }
         }
+        log!("borrow_amount actual {}", borrow_amount);
 
         let max_borrowable = self.compute_max_borrowable(
             lend_token_info,
@@ -147,9 +149,10 @@ impl AccountDeposit {
             interest_rate,
             min_cr,
         );
-        if borrow_amount.clone() <= max_borrowable {
-            self.borrow_amount += borrow_amount;
-        }
+        log!("max_borrowable actual {}", max_borrowable);
+        require!(borrow_amount.clone() <= max_borrowable, "exceed max borrowable");
+
+        self.borrow_amount += borrow_amount;
 
         self.assert_collateral_ratio_valid_after_borrow(
             lend_token_info,

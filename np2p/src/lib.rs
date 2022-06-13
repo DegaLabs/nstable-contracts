@@ -6,16 +6,16 @@ mod storage_impl;
 //mod utils;
 mod account_deposit;
 mod pool;
+mod token_receiver;
 mod utils;
 mod views;
-mod token_receiver;
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
-    assert_one_yocto, env, near_bindgen, require, AccountId, Balance, BorshStorageKey, log,
+    assert_one_yocto, env, log, near_bindgen, require, AccountId, Balance, BorshStorageKey,
     PanicOnDefault, Promise, StorageUsage,
 };
 
@@ -47,7 +47,7 @@ enum StorageKey {
     DepositedPools,
     BorrowPools,
     UserStorage,
-    AccountDeposit {pool_id: u32, account_id: AccountId}
+    AccountDeposit { pool_id: u32, account_id: AccountId },
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -136,7 +136,7 @@ pub struct Contract {
     storage_usage_add_pool: StorageUsage,
     storage_usage_join_pool: StorageUsage,
     account_list: Vec<AccountId>,
-    liquidation_marginal: u64   //how mujch in terms of % the treasury got
+    liquidation_marginal: u64, //how mujch in terms of % the treasury got
 }
 
 #[near_bindgen]
@@ -172,7 +172,7 @@ impl Contract {
             storage_usage_add_pool: 0,
             storage_usage_join_pool: 0,
             account_list: vec![],
-            liquidation_marginal: 5000
+            liquidation_marginal: 5000,
         };
 
         this.measure_account_storage_usage();
@@ -189,10 +189,10 @@ impl Contract {
         self.assert_governance();
         let prev_storage = env::storage_usage();
         for i in 0..token_ids.len() {
-            require!(
-                !self.is_token_supported(&token_ids[i]),
-                "token already supported"
-            );
+            if self.is_token_supported(&token_ids[i]) {
+                log!("token already supported {}", token_ids[i]);
+                continue
+            }
             self.supported_tokens.insert(
                 &token_ids[i],
                 &TokenInfo {
@@ -267,12 +267,10 @@ impl Contract {
         log!("accessing to pool 0");
         initial_storage_usage = env::storage_usage();
         let tmp_pool = &mut self.pools[0];
-        
-        
         log!("accessing to pool 0 success");
         let tmp_account_id2 = AccountId::new_unchecked("e".repeat(64).to_string());
         log!("start internal_register_account to pool 0");
-        tmp_pool.internal_register_account(&tmp_account_id2);
+        tmp_pool.internal_register_account_if_not(&tmp_account_id2);
         log!("internal_register_account to pool 0");
         self.add_to_deposit_pools_list(&tmp_account_id2, 0u32);
         self.account_list.push(tmp_account_id2.clone());
@@ -317,7 +315,7 @@ impl Contract {
     }
 
     #[payable]
-    pub fn borrow(&mut self, pool_id: u32, borrow_amount: U128) {
+    pub fn borrow(&mut self, pool_id: u32, borrow_amount: U128) -> Promise {
         require!(borrow_amount.0 > 0, "borrow_amount > 0");
         let prev_storage = env::storage_usage();
         // Select target account.
@@ -336,9 +334,10 @@ impl Contract {
 
         let collateral_token_info = self.get_token_info(pool.collateral_token_id.clone());
         let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
+        let actual_borrow_amount: Balance;
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.internal_borrow(
+            actual_borrow_amount = pool.internal_borrow(
                 &account_id,
                 &borrow_amount.0,
                 &lend_token_info,
@@ -348,8 +347,15 @@ impl Contract {
             );
         }
 
-        self.add_to_borrow_pools_list(&account_id, pool_id);
+        self.add_to_borrow_pools_list(&account_id, pool_id.clone());
         self.verify_storage(&account_id, prev_storage, Some(env::attached_deposit()));
+
+        self.internal_send_tokens(
+            pool_id,
+            &lend_token_info.token_id,
+            &account_id,
+            actual_borrow_amount.clone(),
+        )
     }
 
     #[payable]
@@ -397,8 +403,8 @@ impl Contract {
             fixed_interest_rate,
             liquidation_bonus,
         );
-        pool.internal_register_account(&account_id);
-        pool.internal_register_account(&self.foundation_id);
+        pool.internal_register_account_if_not(&account_id);
+        pool.internal_register_account_if_not(&self.foundation_id);
 
         self.pools.push(pool);
 
@@ -420,7 +426,11 @@ impl Contract {
 
         self.add_to_created_pools_list(&account_id, pool_id.clone());
         self.add_to_deposit_pools_list(&account_id, pool_id.clone());
-        log!("verify_storage {}, {}", env::storage_usage() - prev_storage, env::storage_usage());
+        log!(
+            "verify_storage {}, {}",
+            env::storage_usage() - prev_storage,
+            env::storage_usage()
+        );
         self.verify_storage(
             &account_id,
             prev_storage,
@@ -468,7 +478,6 @@ impl Contract {
         self.abort_if_pause();
         self.abort_if_blacklisted(account_id.clone());
         self.abort_if_pool_id_valid(pool_id.clone() as usize);
-        
         {
             let pool = &mut self.pools[pool_id as usize];
             pool.internal_pay_loan(&account_id, amount.0);
@@ -497,13 +506,26 @@ impl Contract {
 
         let collateral_token_info = self.get_token_info(pool.collateral_token_id.clone());
         let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
-        
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.internal_liquidate(liquidated_account_id.clone(), liquidated_borrow_amount.0, liquidator_account_id.clone(), &lend_token_info, &lend_token_price, &collateral_token_info, &collateral_token_price, self.foundation_id.clone(), self.liquidation_marginal);
+            pool.internal_liquidate(
+                liquidated_account_id.clone(),
+                liquidated_borrow_amount.0,
+                liquidator_account_id.clone(),
+                &lend_token_info,
+                &lend_token_price,
+                &collateral_token_info,
+                &collateral_token_price,
+                self.foundation_id.clone(),
+                self.liquidation_marginal,
+            );
         }
 
-        self.verify_storage(&liquidator_account_id, prev_usage, Some(env::attached_deposit()));
+        self.verify_storage(
+            &liquidator_account_id,
+            prev_usage,
+            Some(env::attached_deposit()),
+        );
     }
 
     pub fn contract_status(&self) -> ContractStatus {
@@ -586,6 +608,7 @@ impl Contract {
 
         let prev_storage = env::storage_usage();
         let pool = &mut self.pools[pool_id.clone() as usize];
+        pool.internal_register_account_if_not(account_id);
         pool.internal_deposit(account_id, token_id, amount.clone());
         self.add_to_deposit_pools_list(account_id, pool_id);
         self.verify_storage(account_id, prev_storage, None);

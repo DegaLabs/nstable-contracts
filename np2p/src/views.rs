@@ -67,6 +67,8 @@ pub struct AccountInfo {
     //token info
     token_meta_info: TokenMetaInfo,
     liquidation_price: Price,
+
+    unrecorded_interest: U128
 }
 
 #[near_bindgen]
@@ -199,7 +201,26 @@ impl Contract {
                 Some(borrow),
                 Some(pay_amount),
             ),
+            unrecorded_interest: U128(pool.compute_unrecorded_interest(&account_id))
         }
+    }
+
+    pub fn compute_max_borrowable_for_account(
+        &self,
+        pool_id: usize,
+        account_id: AccountId,
+    ) -> U128 {
+        let token_meta_info = self.get_token_meta_info(pool_id);
+        let pool = self.pools.get(pool_id).expect("pool_id out of bound");
+        pool.compute_max_borrowable_for_account(
+            &account_id,
+            &token_meta_info.lend_token_info,
+            &token_meta_info.lend_token_price,
+            &token_meta_info.collateral_token_info,
+            &token_meta_info.collateral_token_price,
+            Some(0),
+        )
+        .into()
     }
 
     pub fn get_account_state(&self, account_id: AccountId) -> Vec<AccountInfo> {
@@ -208,7 +229,13 @@ impl Contract {
             .unwrap_or(vec![])
             .iter()
             .map(|pool_id| {
-                self.get_account_state_in_pool(pool_id.clone() as usize, account_id.clone(), None, None, None)
+                self.get_account_state_in_pool(
+                    pool_id.clone() as usize,
+                    account_id.clone(),
+                    None,
+                    None,
+                    None,
+                )
             })
             .collect::<Vec<_>>()
     }
@@ -337,7 +364,7 @@ impl Contract {
             &collateral_token_price,
             Some(collateral_amount.unwrap_or(U128(0)).0),
             Some(borrow.unwrap_or(U128(0)).0),
-            Some(pay_amount.unwrap_or(U128(0)).0)
+            Some(pay_amount.unwrap_or(U128(0)).0),
         )
     }
 
@@ -356,12 +383,10 @@ impl Contract {
         let borrow_amount = borrow_amount.unwrap_or(U128(0));
         let pay_amount = pay_amount.unwrap_or(U128(0));
 
-        let account_deposit = pool.get_account_deposit(&account_id);
-
         let total_collateral_amount =
-            collateral_amount.0 + account_deposit.get_token_deposit(&pool.collateral_token_id);
+            collateral_amount.0 + pool.get_token_deposit(&account_id, &pool.collateral_token_id);
         let mut total_borrow =
-            borrow_amount.0 + account_deposit.get_token_deposit(&pool.lend_token_id);
+            borrow_amount.0 + pool.get_token_deposit(&account_id, &pool.lend_token_id);
 
         if total_borrow > pay_amount.0 {
             total_borrow -= pay_amount.0;
@@ -393,7 +418,11 @@ impl Contract {
         self.account_list.len()
     }
 
-    pub fn get_account_list(&self, from_index: Option<usize>, limit: Option<usize>) -> Vec<&AccountId> {
+    pub fn get_account_list(
+        &self,
+        from_index: Option<usize>,
+        limit: Option<usize>,
+    ) -> Vec<&AccountId> {
         let limit = limit.map(|v| v as usize).unwrap_or(usize::MAX);
         require!(limit != 0, "Cannot provide limit of 0.");
         let start_index = from_index.unwrap_or(0);

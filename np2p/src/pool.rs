@@ -106,17 +106,13 @@ impl Pool {
         let mut account_deposit = self.get_account_deposit_or_revert(account_id);
         log!("success reading account deposit");
         if token_id.clone() == self.lend_token_id {
-            if self.total_lend_asset_deposit == 0 {
-                self.last_acc_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
-                account_deposit.internal_deposit_lend_token(&amount, &0u128);
-            } else {
-                //update acc_interest_per_share
-                self.acc_interest_per_share = self.get_current_acc_interest_per_share();
-                self.last_acc_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
-                account_deposit.internal_deposit_lend_token(&amount, &self.acc_interest_per_share);
-            }
+            //update acc_interest_per_share
+            self.update_acc_interest_per_share();
+            account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
+            account_deposit.internal_deposit_lend_token(&amount, &self.acc_interest_per_share);
             self.total_lend_asset_deposit += amount;
         } else if token_id.clone() == self.collateral_token_id {
+            account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
             account_deposit.internal_deposit_collateral(&amount);
             self.total_collateral_deposit += amount;
         } else {
@@ -138,7 +134,9 @@ impl Pool {
     }
 
     pub fn get_account_deposit_or_revert(&self, account_id: &AccountId) -> AccountDeposit {
-        self.account_deposits.get(account_id).expect("account not registered")
+        self.account_deposits
+            .get(account_id)
+            .expect("account not registered")
     }
     pub fn internal_borrow(
         &mut self,
@@ -148,7 +146,7 @@ impl Pool {
         lend_token_price: &Price,
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
-    ) {
+    ) -> Balance {
         self.update_acc_interest_per_share();
 
         require!(
@@ -172,7 +170,6 @@ impl Pool {
             ));
         }
 
-
         let mut account_deposit = self.get_account_deposit_or_revert(account_id);
         let actual_borrow_amount = account_deposit.internal_borrow(
             amount,
@@ -183,6 +180,7 @@ impl Pool {
             self.fixed_interest_rate,
             self.min_cr,
         );
+        log!("pool actual_borrow_amount {}", actual_borrow_amount);
         self.account_deposits.insert(account_id, &account_deposit);
         if actual_borrow_amount != amount.clone() {
             self.total_lend_asset_deposit -= amount.clone() - actual_borrow_amount;
@@ -190,9 +188,10 @@ impl Pool {
         } else {
             self.total_borrow += amount.clone();
         }
+        actual_borrow_amount
     }
 
-    pub fn internal_register_account(&mut self, account_id: &AccountId) {
+    pub fn internal_register_account_if_not(&mut self, account_id: &AccountId) {
         log!(
             "creating default account {}, {}, {}",
             account_id.clone(),
@@ -275,7 +274,8 @@ impl Pool {
     ) {
         self.update_acc_interest_per_share();
 
-        let mut liquidator_account_deposit = self.get_account_deposit_or_revert(&liquidator_account_id);
+        let mut liquidator_account_deposit =
+            self.get_account_deposit_or_revert(&liquidator_account_id);
         liquidator_account_deposit
             .update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
         let liquidator_account_lend_token_deposit_amount =
@@ -290,7 +290,8 @@ impl Pool {
             "cannot liquidate if liquidator maker owes the pool"
         );
 
-        let mut liquidated_account_deposit = self.get_account_deposit_or_revert(&liquidated_account_id);
+        let mut liquidated_account_deposit =
+            self.get_account_deposit_or_revert(&liquidated_account_id);
         let borrowed_before = liquidated_account_deposit.borrow_amount;
         liquidated_account_deposit
             .update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
@@ -302,7 +303,7 @@ impl Pool {
             collateral_token_price,
             None,
             None,
-            None
+            None,
         );
         require!(
             liquidated_account_cr < self.min_cr,
@@ -353,7 +354,7 @@ impl Pool {
             collateral_token_price,
             None,
             None,
-            None
+            None,
         );
         require!(
             liquidated_account_cr < self.min_cr,
@@ -410,9 +411,20 @@ impl Pool {
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
         collateral_amount: Option<Balance>,
-        borrow: Option<Balance>,    //borrow more
-        pay_amount: Option<Balance>,    //pay back
+        borrow: Option<Balance>,     //borrow more
+        pay_amount: Option<Balance>, //pay back
     ) -> u64 {
+        if self.account_deposits.get(&account_id).is_none() {
+            return compute_cr(
+                0,
+                collateral_token_info.decimals,
+                collateral_token_price,
+                0,
+                lend_token_price,
+                lend_token_info.decimals,
+            );
+        }
+
         let account_deposit = self.get_account_deposit(&account_id);
         account_deposit.compute_current_cr(
             lend_token_info,
@@ -433,30 +445,53 @@ impl Pool {
         lend_token_price: &Price,
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
-        additional_collateral_amount: Option<Balance>
+        additional_collateral_amount: Option<Balance>,
     ) -> Balance {
+        if self.account_deposits.get(account_id).is_none() {
+            return 0;
+        }
         let account_deposit = self.get_account_deposit(account_id);
-        let max_borrowable = account_deposit.compute_max_borrowable(lend_token_info, lend_token_price, collateral_token_info, collateral_token_price, additional_collateral_amount, self.fixed_interest_rate, self.min_cr);
+        let max_borrowable = account_deposit.compute_max_borrowable(
+            lend_token_info,
+            lend_token_price,
+            collateral_token_info,
+            collateral_token_price,
+            additional_collateral_amount,
+            self.fixed_interest_rate,
+            self.min_cr,
+        );
         let max_of_pool = self.get_max_borrowable_of_pool();
         if max_borrowable > max_of_pool {
-            return max_of_pool
+            return max_of_pool;
         }
         max_borrowable
     }
 
     pub fn get_max_borrowable_of_pool(&self) -> Balance {
-        let max_of_pool = self.total_lend_asset_deposit * self.max_utilization as u128 / UTILIZATION_DIVISOR;
+        let max_of_pool =
+            self.total_lend_asset_deposit * self.max_utilization as u128 / UTILIZATION_DIVISOR;
         max_of_pool - self.total_borrow
     }
 
     pub fn get_deposits(&self, account_id: &AccountId) -> HashMap<AssetId, U128> {
+        if self.account_deposits.get(account_id).is_none() {
+            return HashMap::new();
+        }
         let account_deposit = self.get_account_deposit(account_id);
         account_deposit.get_deposits()
     }
 
     pub fn get_current_acc_interest_per_share(&self) -> Balance {
+        if self.total_lend_asset_deposit == 0 {
+            return 0;
+        }
+        let mut last_acc_interest_update_timestamp_sec =
+            self.last_acc_interest_update_timestamp_sec;
+        if self.total_borrow == 0 {
+            last_acc_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
+        }
         let elapsed_time =
-            env::block_timestamp_ms() / 1000 - self.last_acc_interest_update_timestamp_sec;
+            env::block_timestamp_ms() / 1000 - last_acc_interest_update_timestamp_sec;
         let elapsed_time = elapsed_time as u128;
         let generated_interest =
             self.total_borrow * elapsed_time * (self.fixed_interest_rate as u128)
@@ -465,30 +500,54 @@ impl Pool {
             / self.total_lend_asset_deposit;
     }
 
-    pub fn get_pending_unpaid_lending_interest_profit(
-        &self,
-        account_id: &AccountId
-    ) -> Balance {
+    pub fn get_pending_unpaid_lending_interest_profit(&self, account_id: &AccountId) -> Balance {
+        if self.account_deposits.get(account_id).is_none() {
+            return 0;
+        }
         let account_deposit = self.get_account_deposit(account_id);
-        account_deposit.get_pending_unpaid_lending_interest_profit(&self.get_current_acc_interest_per_share())
+        account_deposit
+            .get_pending_unpaid_lending_interest_profit(&self.get_current_acc_interest_per_share())
     }
 
-    pub fn get_pending_total_lending_interest_profit(
-        &self,
-        account_id: &AccountId
-    ) -> Balance {
+    pub fn get_pending_total_lending_interest_profit(&self, account_id: &AccountId) -> Balance {
+        if self.account_deposits.get(account_id).is_none() {
+            return 0;
+        }
         let account_deposit = self.get_account_deposit(account_id);
-        account_deposit.get_pending_total_lending_interest_profit(&self.get_current_acc_interest_per_share())
+        account_deposit
+            .get_pending_total_lending_interest_profit(&self.get_current_acc_interest_per_share())
     }
 
     pub fn get_pending_unpaid_borrowing_interest(&self, account_id: &AccountId) -> Balance {
+        if self.account_deposits.get(account_id).is_none() {
+            return 0;
+        }
         let account_deposit = self.get_account_deposit(account_id);
         account_deposit.get_pending_unpaid_borrowing_interest(self.fixed_interest_rate)
     }
 
+    pub fn compute_unrecorded_interest(&self, account_id: &AccountId) -> Balance {
+        if self.account_deposits.get(account_id).is_none() {
+            return 0;
+        }
+        let account_deposit = self.get_account_deposit(account_id);
+        account_deposit.compute_unrecorded_interest(self.fixed_interest_rate)
+    }
+
     pub fn get_pending_total_borrowing_interest(&self, account_id: &AccountId) -> Balance {
+        if self.account_deposits.get(account_id).is_none() {
+            return 0;
+        }
         let account_deposit = self.get_account_deposit(account_id);
         account_deposit.get_pending_total_borrowing_interest(self.fixed_interest_rate)
+    }
+
+    pub fn get_token_deposit(&self, account_id: &AccountId, token_id: &AssetId) -> Balance {
+        if self.account_deposits.get(account_id).is_none() {
+            return 0;
+        }
+        let account_deposit = self.get_account_deposit(account_id);
+        account_deposit.get_token_deposit(token_id)
     }
 }
 
