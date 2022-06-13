@@ -108,12 +108,10 @@ impl Pool {
         if token_id.clone() == self.lend_token_id {
             //update acc_interest_per_share
             self.update_acc_interest_per_share();
-            account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
-            account_deposit.internal_deposit_lend_token(&amount, &self.acc_interest_per_share);
+            account_deposit.internal_deposit_lend_token(&amount, self.fixed_interest_rate, &self.acc_interest_per_share);
             self.total_lend_asset_deposit += amount;
         } else if token_id.clone() == self.collateral_token_id {
-            account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
-            account_deposit.internal_deposit_collateral(&amount);
+            account_deposit.internal_deposit_collateral(&amount, self.fixed_interest_rate, &self.acc_interest_per_share);
             self.total_collateral_deposit += amount;
         } else {
             env::panic_str("unsupported token for pool")
@@ -222,7 +220,6 @@ impl Pool {
     ) {
         self.update_acc_interest_per_share();
         let mut account_deposit = self.get_account_deposit_or_revert(account_id);
-        account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
 
         let withdrawn_amount_from_deposit = account_deposit.internal_withdraw_from_account(
             token_id,
@@ -232,6 +229,7 @@ impl Pool {
             collateral_token_info,
             collateral_token_price,
             self.fixed_interest_rate,
+            &self.acc_interest_per_share,
             self.min_cr,
         );
         self.account_deposits.insert(account_id, &account_deposit);
@@ -251,9 +249,8 @@ impl Pool {
     pub fn internal_pay_loan(&mut self, account_id: &AccountId, pay_amount: Balance) {
         self.update_acc_interest_per_share();
         let mut account_deposit = self.get_account_deposit_or_revert(account_id);
-        account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
         let (paid_borrow, added_liquidity) =
-            account_deposit.internal_pay_loan(pay_amount, self.acc_interest_per_share.clone());
+            account_deposit.internal_pay_loan(pay_amount, self.fixed_interest_rate, self.acc_interest_per_share.clone());
         self.account_deposits.insert(account_id, &account_deposit);
 
         self.total_borrow -= paid_borrow;
@@ -286,7 +283,7 @@ impl Pool {
         );
 
         require!(
-            liquidator_account_deposit.get_owned_lend_token_amount() == 0,
+            liquidator_account_deposit.get_owed_lend_token_amount() == 0,
             "cannot liquidate if liquidator maker owes the pool"
         );
 
@@ -335,7 +332,7 @@ impl Pool {
             to_liquidate_collateral_amount_to_cover_liquidator.as_u128();
 
         let (actual_borrow_paid, remain) = liquidated_account_deposit
-            .internal_pay_loan(liquidated_borrow_amount, self.acc_interest_per_share);
+            .internal_pay_loan(liquidated_borrow_amount, self.fixed_interest_rate, self.acc_interest_per_share);
 
         let liquidated_collateral_amount_before =
             liquidated_account_deposit.get_token_deposit(&self.collateral_token_id);
@@ -367,10 +364,10 @@ impl Pool {
             / LIQUIDATION_MARGINAL_DIVISOR;
         let collateral_to_liquidator =
             to_liquidate_collateral_amount - collateral_to_foundation.clone();
-        liquidator_account_deposit.internal_deposit_collateral(&collateral_to_liquidator);
+        liquidator_account_deposit.internal_deposit_collateral(&collateral_to_liquidator, self.fixed_interest_rate, &self.acc_interest_per_share);
 
         let mut foundation_account_deposit = self.get_account_deposit_or_revert(&foundation_id);
-        foundation_account_deposit.internal_deposit_collateral(&collateral_to_foundation);
+        foundation_account_deposit.internal_deposit_collateral(&collateral_to_foundation, self.fixed_interest_rate, &self.acc_interest_per_share);
 
         //save accounts
         self.account_deposits
