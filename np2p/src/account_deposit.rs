@@ -265,6 +265,7 @@ impl AccountDeposit {
 
                 self.deposits
                     .insert(&self.lend_token_id, &(deposit_amount - remain));
+                self.update_lending_profit(interest_rate, acc_interest_per_share);
                 return remain;
             } else {
                 self.unpaid_lending_interest_profit -= remain;
