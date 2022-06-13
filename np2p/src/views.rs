@@ -68,7 +68,9 @@ pub struct AccountInfo {
     token_meta_info: TokenMetaInfo,
     liquidation_price: Price,
 
-    unrecorded_interest: U128
+    unrecorded_interest: U128,
+    acc_interest_per_share: U128,
+    total_interest_reward: U128
 }
 
 #[near_bindgen]
@@ -201,7 +203,9 @@ impl Contract {
                 Some(borrow),
                 Some(pay_amount),
             ),
-            unrecorded_interest: U128(pool.compute_unrecorded_interest(&account_id))
+            unrecorded_interest: U128(pool.compute_unrecorded_interest(&account_id)),
+            acc_interest_per_share: pool.get_current_acc_interest_per_share().into(),
+            total_interest_reward: pool.get_total_interest_reward(&account_id).into()
         }
     }
 
