@@ -74,6 +74,8 @@ impl AccountDeposit {
         current_deposit = current_deposit + amount.clone();
         self.deposits
             .insert(&self.collateral_token_id, &current_deposit);
+
+        self.update_lending_profit(interest_rate, acc_interest_per_share);
     }
 
     //this does not take care of interest when user in a borrowing position
@@ -88,11 +90,7 @@ impl AccountDeposit {
         current_deposit = current_deposit + amount.clone();
         self.deposits.insert(&self.lend_token_id, &current_deposit);
 
-        let total_interest_reward = (U256::from(current_deposit)
-            * U256::from(acc_interest_per_share.clone())
-            / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
-        .as_u128();
-        self.lending_interest_profit_debt = total_interest_reward;
+        self.update_lending_profit(interest_rate, acc_interest_per_share);
     }
 
     pub fn update_borrowing_interest(&mut self, interest_rate: u64) -> Balance {
@@ -169,7 +167,7 @@ impl AccountDeposit {
         );
 
         self.borrow_amount += borrow_amount;
-
+        self.update_lending_profit(interest_rate, acc_interest_per_share);
         self.assert_collateral_ratio_valid_after_borrow(
             lend_token_info,
             lend_token_price,
@@ -287,6 +285,7 @@ impl AccountDeposit {
             }
 
             self.deposits.insert(token_id, &collateral_after_withdrawal);
+            self.update_lending_profit(interest_rate, acc_interest_per_share);
             return amount;
         } else {
             env::panic_str("invalid token");
@@ -369,11 +368,12 @@ impl AccountDeposit {
         (actual_borrow_paid, remain)
     }
 
-    pub fn reduce_collateral(&mut self, amount: Balance) {
+    pub fn reduce_collateral(&mut self, amount: Balance, interest_rate: u64, acc_interest_per_share: &Balance) {
         let collateral_amount = self.get_token_deposit(&self.collateral_token_id);
         require!(amount <= collateral_amount, "!reduce_collateral");
         self.deposits
             .insert(&self.collateral_token_id, &(collateral_amount - amount));
+        self.update_lending_profit(interest_rate, acc_interest_per_share);
     }
 
     pub fn reduce_lend_token_deposit(&mut self, amount: Balance) {

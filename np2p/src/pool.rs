@@ -354,7 +354,7 @@ impl Pool {
 
         let liquidated_collateral_amount_before =
             liquidated_account_deposit.get_token_deposit(&self.collateral_token_id);
-        liquidated_account_deposit.reduce_collateral(to_liquidate_collateral_amount.clone());
+        liquidated_account_deposit.reduce_collateral(to_liquidate_collateral_amount.clone(), self.fixed_interest_rate, &self.acc_interest_per_share);
         liquidator_account_deposit.reduce_lend_token_deposit(liquidated_borrow_amount);
 
         self.total_lend_asset_deposit =

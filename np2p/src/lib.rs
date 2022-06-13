@@ -334,10 +334,9 @@ impl Contract {
 
         let collateral_token_info = self.get_token_info(pool.collateral_token_id.clone());
         let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
-        let actual_borrow_amount: Balance;
         {
             let pool = &mut self.pools[pool_id as usize];
-            actual_borrow_amount = pool.internal_borrow(
+            pool.internal_borrow(
                 &account_id,
                 &borrow_amount.0,
                 &lend_token_info,
@@ -349,12 +348,12 @@ impl Contract {
 
         self.add_to_borrow_pools_list(&account_id, pool_id.clone());
         self.verify_storage(&account_id, prev_storage, Some(env::attached_deposit()));
-
+        
         self.internal_send_tokens(
             pool_id,
             &lend_token_info.token_id,
             &account_id,
-            actual_borrow_amount.clone(),
+            borrow_amount.0.clone(),
         )
     }
 

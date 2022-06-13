@@ -70,7 +70,7 @@ pub struct AccountInfo {
 
     unrecorded_interest: U128,
     acc_interest_per_share: U128,
-    total_interest_reward: U128
+    total_interest_reward: U128,
 }
 
 #[near_bindgen]
@@ -205,7 +205,7 @@ impl Contract {
             ),
             unrecorded_interest: U128(pool.compute_unrecorded_interest(&account_id)),
             acc_interest_per_share: pool.get_current_acc_interest_per_share().into(),
-            total_interest_reward: pool.get_total_interest_reward(&account_id).into()
+            total_interest_reward: pool.get_total_interest_reward(&account_id).into(),
         }
     }
 
@@ -391,6 +391,17 @@ impl Contract {
             collateral_amount.0 + pool.get_token_deposit(&account_id, &pool.collateral_token_id);
         let mut total_borrow =
             borrow_amount.0 + pool.get_token_deposit(&account_id, &pool.lend_token_id);
+
+        if total_borrow == 0 {
+            return Price::default();
+        }
+
+        if total_collateral_amount == 0 {
+            return Price {
+                multiplier: U128(u128::MAX),
+                decimals: 8
+            }
+        }
 
         if total_borrow > pay_amount.0 {
             total_borrow -= pay_amount.0;
