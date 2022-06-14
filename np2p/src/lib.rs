@@ -421,12 +421,6 @@ impl Contract {
 
         self.add_to_created_pools_list(&account_id, pool_id.clone());
         self.add_to_deposit_pools_list(&account_id, pool_id.clone());
-        log!(
-            "verify_storage {}, {}, {}",
-            env::storage_usage(),
-            prev_storage,
-            env::storage_usage()
-        );
         self.verify_storage(
             &account_id,
             prev_storage,

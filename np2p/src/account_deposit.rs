@@ -33,7 +33,6 @@ impl AccountDeposit {
         lend_token_id: AssetId,
         collateral_token_id: AssetId,
     ) -> AccountDeposit {
-        log!("account deposit:: new");
         let account_deposit = AccountDeposit {
             pool_id: pool_id.clone(),
             owner_id: owner_id.clone(),
@@ -52,16 +51,11 @@ impl AccountDeposit {
             total_borrowing_interest: 0,
             last_borrowing_interest_update_timestamp_sec: 0,
         };
-        log!("account deposit:: inserting");
-        // account_deposit.deposits.insert(&lend_token_id, &0u128);
-        // log!("account deposit:: inserting 2");
-        // account_deposit.deposits.insert(&collateral_token_id, &0u128);
         account_deposit
     }
 
     pub fn internal_deposit_collateral(&mut self, amount: &Balance) {
         log!("updating collateral for account {}", self.owner_id);
-        log!("reading collateral deposit {}", self.owner_id);
         let mut current_deposit = self
             .deposits
             .get(&self.collateral_token_id.clone())
