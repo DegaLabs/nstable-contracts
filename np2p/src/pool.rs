@@ -102,9 +102,9 @@ impl Pool {
                 "lower than min deposit"
             );
         }
-        log!("reading account deposit for {}", account_id);
+        log!("reading account deposit {} for token {}, lend {}, collateral {}", account_id, token_id, self.lend_token_id, self.collateral_token_id);
         let mut account_deposit = self.get_account_deposit_or_revert(account_id);
-        log!("success reading account deposit");
+        log!("success reading account deposit {} from pool {}", account_id.clone(), self.pool_id);
         if token_id.clone() == self.lend_token_id {
             //update acc_interest_per_share
             log!("update_acc_interest_per_share");
@@ -208,7 +208,7 @@ impl Pool {
         );
         if self.account_deposits.get(account_id).is_none() {
             let account_deposit = AccountDeposit::new(
-                0,
+                self.pool_id,
                 account_id.clone(),
                 self.lend_token_id.clone(),
                 self.collateral_token_id.clone(),
@@ -602,3 +602,4 @@ pub fn new_pool_default(
         1000,
     )
 }
+

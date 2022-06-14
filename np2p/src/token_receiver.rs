@@ -6,7 +6,7 @@ use crate::*;
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "near_sdk::serde")]
 #[serde(untagged)]
-enum TokenReceiverMessage {
+pub enum TokenReceiverMessage {
     /// Alternative to deposit + execute actions call.
     Deposit {
         pool_id: u32

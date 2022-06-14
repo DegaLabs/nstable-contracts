@@ -41,7 +41,7 @@ impl AccountDeposit {
             collateral_token_id: collateral_token_id.clone(),
             deposits: UnorderedMap::new(StorageKey::AccountDeposit {
                 pool_id: pool_id.clone(),
-                account_id: owner_id.clone(),
+                account_id: owner_id.clone()
             }),
             borrow_amount: 0,
             lending_interest_profit_debt: 0,
@@ -65,8 +65,9 @@ impl AccountDeposit {
         interest_rate: u64,
         acc_interest_per_share: &Balance,
     ) {
+        log!("updating collateral for account {}", self.owner_id);
         self.update_account(interest_rate, acc_interest_per_share);
-
+        log!("reading collateral deposit {}", self.owner_id);
         let mut current_deposit = self
             .deposits
             .get(&self.collateral_token_id.clone())
@@ -110,7 +111,9 @@ impl AccountDeposit {
     }
 
     fn update_lending_profit(&mut self, _interest_rate: u64, acc_interest_per_share: &Balance) {
+        log!("read current deposit {} {} {} {}", self.pool_id, self.owner_id, self.lend_token_id, self.collateral_token_id);
         let current_deposit = self.get_token_deposit(&self.lend_token_id);
+        log!("read current deposit done");
         self.last_lending_interest_reward_update_timestamp_sec = env::block_timestamp_ms() / 1000;
         let total_interest_reward = (U256::from(current_deposit)
             * U256::from(acc_interest_per_share.clone())

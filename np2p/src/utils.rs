@@ -69,6 +69,13 @@ impl Contract {
             GAS_FOR_RESOLVE_TRANSFER,
         ))
     }
+
+    pub fn get_storage_usage(&self, prev: StorageUsage) -> StorageUsage {
+        if env::storage_usage() > prev {
+            return env::storage_usage() - prev;
+        }
+        return 0;
+    }
 }
 
 pub fn compute_token_value(amount: Balance, price: &Price) -> U256 {

@@ -47,7 +47,10 @@ enum StorageKey {
     DepositedPools,
     BorrowPools,
     UserStorage,
-    AccountDeposit { pool_id: u32, account_id: AccountId },
+    AccountDeposit {
+        pool_id: u32,
+        account_id: AccountId
+    },
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -103,13 +106,6 @@ impl TokenInfo {
         TokenInfo {
             token_id: token_id,
             decimals: decimals,
-        }
-    }
-
-    fn default() -> TokenInfo {
-        TokenInfo {
-            token_id: AccountId::new_unchecked("".to_string()),
-            decimals: 0,
         }
     }
 }
@@ -191,7 +187,7 @@ impl Contract {
         for i in 0..token_ids.len() {
             if self.is_token_supported(&token_ids[i]) {
                 log!("token already supported {}", token_ids[i]);
-                continue
+                continue;
             }
             self.supported_tokens.insert(
                 &token_ids[i],
@@ -263,7 +259,7 @@ impl Contract {
 
         self.add_to_deposit_pools_list(&tmp_account_id, 0u32);
 
-        self.storage_usage_add_pool = env::storage_usage() - initial_storage_usage;
+        self.storage_usage_add_pool = self.get_storage_usage(initial_storage_usage);
         log!("accessing to pool 0");
         initial_storage_usage = env::storage_usage();
         let tmp_pool = &mut self.pools[0];
@@ -275,7 +271,7 @@ impl Contract {
         self.add_to_deposit_pools_list(&tmp_account_id2, 0u32);
         self.account_list.push(tmp_account_id2.clone());
 
-        self.storage_usage_join_pool = env::storage_usage() - initial_storage_usage;
+        self.storage_usage_join_pool = self.get_storage_usage(initial_storage_usage);
         log!("storage_usage_join_pool to pool 0");
         //clean out
         self.account_list.pop();
@@ -348,7 +344,6 @@ impl Contract {
 
         self.add_to_borrow_pools_list(&account_id, pool_id.clone());
         self.verify_storage(&account_id, prev_storage, Some(env::attached_deposit()));
-        
         self.internal_send_tokens(
             pool_id,
             &lend_token_info.token_id,
@@ -390,6 +385,7 @@ impl Contract {
         let account_id = env::predecessor_account_id();
         let prev_storage = env::storage_usage();
         let pool_id = self.pools.len() as u32;
+        log!("creating pool {}", pool_id);
         let mut pool = Pool::new(
             pool_id.clone(),
             account_id.clone(),
@@ -426,8 +422,9 @@ impl Contract {
         self.add_to_created_pools_list(&account_id, pool_id.clone());
         self.add_to_deposit_pools_list(&account_id, pool_id.clone());
         log!(
-            "verify_storage {}, {}",
-            env::storage_usage() - prev_storage,
+            "verify_storage {}, {}, {}",
+            env::storage_usage(),
+            prev_storage,
             env::storage_usage()
         );
         self.verify_storage(
@@ -435,6 +432,7 @@ impl Contract {
             prev_storage,
             Some(attached_deposit - self.pool_creation_fee),
         );
+        log!("Done create pool {}", pool_id);
     }
 
     #[payable]
@@ -621,7 +619,7 @@ impl Contract {
     ) {
         let attached_deposit = attached_deposit.unwrap_or(0);
         let mut storage_account = self.get_storage_account_unwrap(account_id);
-        storage_account.storage_usage += env::storage_usage() - prev_storage;
+        storage_account.storage_usage += self.get_storage_usage(prev_storage);
         storage_account.near_amount += attached_deposit;
         self.storage_accounts.insert(account_id, &storage_account);
         self.assert_storage_usage(account_id);
@@ -694,5 +692,162 @@ pub fn upgrade() {
     // }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod tests {}
+#[cfg(test)]
+mod tests {
+    use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
+    use near_contract_standards::storage_management::StorageManagement;
+    use near_sdk::serde_json;
+    use near_sdk::test_utils::VMContextBuilder;
+    use near_sdk::{testing_env, Balance};
+    //use near_sdk_sim::to_yocto;
+
+    use super::*;
+    use token_receiver::TokenReceiverMessage;
+    const ONE_NEAR: Balance = 10u128.pow(24);
+
+    fn get_account(id: u32) -> AccountId {
+        AccountId::new_unchecked(format!("id-{}", id))
+    }
+
+    /// Creates contract and a pool with tokens with 0.3% of total fee.
+    fn setup_contract(
+        governance: AccountId,
+        foundation: AccountId,
+        price_feeder: AccountId,
+    ) -> (VMContextBuilder, Contract) {
+        let mut context = VMContextBuilder::new();
+        testing_env!(context.predecessor_account_id(get_account(0)).build());
+        let contract = Contract::new(governance, foundation, Some(price_feeder));
+        (context, contract)
+    }
+
+    // fn deposit_tokens(
+    //     context: &mut VMContextBuilder,
+    //     contract: &mut Contract,
+    //     account_id: ValidAccountId,
+    //     token_amounts: Vec<(ValidAccountId, Balance)>,
+    // ) {
+    //     if contract.storage_balance_of(account_id.clone()).is_none() {
+    //         testing_env!(context
+    //             .predecessor_account_id(account_id.clone())
+    //             .attached_deposit(to_yocto("1"))
+    //             .build());
+    //         contract.storage_deposit(None, None);
+    //     }
+    //     testing_env!(context
+    //         .predecessor_account_id(account_id.clone())
+    //         .attached_deposit(to_yocto("1"))
+    //         .build());
+    //     let tokens = token_amounts
+    //         .iter()
+    //         .map(|(token_id, _)| token_id.clone().into())
+    //         .collect();
+    //     testing_env!(context.attached_deposit(1).build());
+    //     contract.register_tokens(tokens);
+    //     for (token_id, amount) in token_amounts {
+    //         testing_env!(context
+    //             .predecessor_account_id(token_id)
+    //             .attached_deposit(1)
+    //             .build());
+    //         contract.ft_on_transfer(account_id.clone(), U128(amount), "".to_string());
+    //     }
+    // }
+
+    fn add_supported_tokens(context: &mut VMContextBuilder, contract: &mut Contract) {
+        let lend_token_id = get_account(3);
+        let collateral_token_id = get_account(4);
+        testing_env!(context
+            .attached_deposit(ONE_NEAR)
+            .predecessor_account_id(get_account(0))
+            .build());
+        contract.add_new_supported_tokens(
+            [lend_token_id.clone(), collateral_token_id.clone()].to_vec(),
+            [8, 18].to_vec(),
+        );
+    }
+
+    #[test]
+    fn test_basics() {
+        let governance = get_account(0);
+        let foundation = get_account(1);
+        let price_feeder = get_account(2);
+        let (mut context, mut contract) =
+            setup_contract(governance.clone(), foundation.clone(), price_feeder.clone());
+        // add liquidity of (1,2) tokens
+        assert_eq!(contract.governance, governance);
+    }
+
+    #[test]
+    fn create_new_pools() {
+        let governance = get_account(0);
+        let foundation = get_account(1);
+        let price_feeder = get_account(2);
+        let lend_token_id = get_account(3);
+        let collateral_token_id = get_account(4);
+        log!("accounts {}", get_account(0));
+        let (mut context, mut contract) =
+            setup_contract(governance.clone(), foundation.clone(), price_feeder.clone());
+        add_supported_tokens(&mut context, &mut contract);
+        for i in 0..2 {
+            testing_env!(context
+                .attached_deposit(11 * ONE_NEAR)
+                .predecessor_account_id(get_account(i))
+                .build());
+            contract.storage_deposit(None, None);
+            contract.create_new_pool(
+                lend_token_id.clone(),
+                collateral_token_id.clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+
+            for j in 1..3 {
+                testing_env!(context
+                    .attached_deposit(1 * ONE_NEAR)
+                    .predecessor_account_id(get_account(j))
+                    .build());
+                contract.storage_deposit(None, None);
+                //deposit
+                testing_env!(context
+                    .attached_deposit(1 * ONE_NEAR)
+                    .predecessor_account_id(collateral_token_id.clone())
+                    .build());
+                log!("Depositing to pool {}, token {}", i, collateral_token_id.clone());
+                let message = TokenReceiverMessage::Deposit { pool_id: i };
+                contract.ft_on_transfer(
+                    get_account(j),
+                    U128(100000000),
+                    serde_json::to_string(&message).unwrap(),
+                );
+                log!("Depositing to pool {}, token {}", i, lend_token_id.clone());
+                testing_env!(context
+                    .attached_deposit(1 * ONE_NEAR)
+                    .predecessor_account_id(lend_token_id.clone())
+                    .build());
+                contract.ft_on_transfer(
+                    get_account(j),
+                    U128(200000000),
+                    serde_json::to_string(&message).unwrap(),
+                );
+                log!("reading deposits from pool {}", i);
+                let pool = contract.pools.get(i as usize).unwrap();
+                let account_deposit = pool.get_account_deposit(&get_account(j));
+                assert_eq!(
+                    account_deposit
+                        .deposits
+                        .get(&collateral_token_id)
+                        .unwrap_or(0),
+                    100000000
+                );
+                assert_eq!(
+                    account_deposit.deposits.get(&lend_token_id).unwrap_or(0),
+                    200000000
+                );
+            }
+        }
+    }
+}

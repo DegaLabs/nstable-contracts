@@ -70,7 +70,7 @@ impl Contract {
 
         self.storage_accounts.insert(account_id, &storage_account);
 
-        let storage_used = env::storage_usage() - init_storage;
+        let storage_used = self.get_storage_usage(init_storage);
         let mut storage_account = self.storage_accounts.get(account_id).unwrap_or_default();
         storage_account.storage_usage += storage_used;
         self.storage_accounts.insert(account_id, &storage_account);
