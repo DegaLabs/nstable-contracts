@@ -230,7 +230,7 @@ impl Pool {
     ) {
         self.update_acc_interest_per_share();
         let mut account_deposit = self.get_account_deposit_or_revert(account_id);
-
+        log!("balance before withdraw {}", account_deposit.get_token_deposit(token_id));
         let withdrawn_amount_from_deposit = account_deposit.internal_withdraw_from_account(
             token_id,
             amount.clone(),
@@ -242,7 +242,11 @@ impl Pool {
             &self.acc_interest_per_share,
             self.min_cr,
         );
+        if token_id.clone() == self.lend_token_id.clone() {
+            log!("withdraw {} of {}, of which {} is extracted from generated lending interest", amount.clone(), token_id.clone(), amount.clone() - withdrawn_amount_from_deposit.clone());
+        }
         self.account_deposits.insert(account_id, &account_deposit);
+        log!("balance after withdraw {}", account_deposit.get_token_deposit(token_id));
 
         if token_id.clone() == self.lend_token_id {
             self.total_lend_asset_deposit -= withdrawn_amount_from_deposit;

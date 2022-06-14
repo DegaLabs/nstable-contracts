@@ -259,13 +259,13 @@ impl AccountDeposit {
             let unpaid_lending_interest_profit = self.unpaid_lending_interest_profit;
             require!(
                 amount <= deposit_amount + unpaid_lending_interest_profit.clone(),
-                "insufficient amount for withdrawal"
+                format!("user has insufficient asset {} for withdrawal", token_id.clone())
             );
             let mut remain = amount.clone();
             if remain >= unpaid_lending_interest_profit {
+                remain = remain - unpaid_lending_interest_profit.clone();
                 self.unpaid_lending_interest_profit = 0;
-                remain = remain - amount.clone();
-
+                log!("withdrawing {}, {}", deposit_amount, remain);
                 self.deposits
                     .insert(&self.lend_token_id, &(deposit_amount - remain));
                 self.update_lending_profit(interest_rate, acc_interest_per_share);
@@ -277,7 +277,7 @@ impl AccountDeposit {
         } else if token_id.clone() == self.collateral_token_id {
             require!(
                 amount <= deposit_amount,
-                "insufficient amount for withdrawal"
+                format!("user has insufficient asset {} for withdrawal", token_id.clone())
             );
             let collateral_after_withdrawal = deposit_amount - amount;
             if self.borrow_amount + self.get_interest_owed(interest_rate) > 0 {

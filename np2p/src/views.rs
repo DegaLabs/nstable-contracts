@@ -1,7 +1,7 @@
 use crate::*;
 use near_sdk::{near_bindgen, AccountId};
 use std::collections::HashMap;
-use utils::{compute_token_value, compute_token_value_usd};
+use utils::{compute_cr, compute_token_value, compute_token_value_usd};
 uint::construct_uint!(
     pub struct U256(4);
 );
@@ -23,7 +23,10 @@ pub struct PoolInfo {
     pub lend_token_id: AssetId,
     pub collateral_token_id: AssetId, //borrowers collateral assets to borrow lended token
     pub min_cr: u64, //min of (value of collateral)/(value of borrowed), when CR of user belows min_cr, liquidation starts
+    pub current_pool_cr: u64,
+    pub pool_max_borrowable: U128,
     pub max_utilization: u64, //max of total borrow / total lend asset liquidity
+    pub current_utilization: u64,
     pub min_lend_token_deposit: U128,
     pub min_lend_token_borrow: U128,
     pub total_lend_asset_deposit: U128,
@@ -247,13 +250,37 @@ impl Contract {
     pub fn get_pool(&self, pool_id: usize) -> PoolInfo {
         let p = self.pools.get(pool_id).expect("pool_id out of bound");
         let token_meta_info = self.get_token_meta_info(pool_id.clone());
+        let mut current_utilization = 0u64;
+        if p.total_borrow > 0 && p.total_lend_asset_deposit > 0 {
+            current_utilization =
+                (p.total_borrow * UTILIZATION_DIVISOR as u128 / p.total_lend_asset_deposit) as u64;
+        }
+
+        let current_pool_cr = compute_cr(
+            p.total_collateral_deposit,
+            token_meta_info.collateral_token_info.decimals,
+            &token_meta_info.collateral_token_price,
+            p.total_borrow,
+            &token_meta_info.lend_token_price,
+            token_meta_info.lend_token_info.decimals,
+        );
+
+        let mut pool_max_borrowable = 0u128;
+        let max_for_pool_borrow = p.total_lend_asset_deposit.clone() * (p.max_utilization as u128) / UTILIZATION_DIVISOR;
+        if max_for_pool_borrow > p.total_borrow {
+            pool_max_borrowable = max_for_pool_borrow - p.total_borrow.clone();
+        }
+
         PoolInfo {
             pool_id: p.pool_id,
             owner_id: p.owner_id.clone(),
             lend_token_id: p.lend_token_id.clone(),
             collateral_token_id: p.collateral_token_id.clone(),
             min_cr: p.min_cr,
+            current_pool_cr: current_pool_cr,
+            pool_max_borrowable: pool_max_borrowable.into(),
             max_utilization: p.max_utilization,
+            current_utilization: current_utilization,
             min_lend_token_deposit: U128(p.min_lend_token_deposit),
             min_lend_token_borrow: U128(p.min_lend_token_borrow),
             total_lend_asset_deposit: U128(p.total_lend_asset_deposit),
@@ -399,8 +426,8 @@ impl Contract {
         if total_collateral_amount == 0 {
             return Price {
                 multiplier: U128(u128::MAX),
-                decimals: 8
-            }
+                decimals: 8,
+            };
         }
 
         if total_borrow > pay_amount.0 {
