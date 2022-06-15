@@ -18,6 +18,7 @@
   "homepage": "https://github.com/DegaLabs/nstable-contracts#readme",
   "dependencies": {
     "axios": "^0.27.2",
+    "bignumber.js": "^9.0.2",
     "config": "^3.3.7",
     "near-api-js": "^0.44.2"
   }
