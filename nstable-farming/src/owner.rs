@@ -1,38 +1,221 @@
 use crate::*;
-
+use crate::errors::*;
+use crate::utils::{
+    assert_one_yocto, ext_fungible_token, ext_multi_fungible_token, ext_self, parse_locktoken_id,
+    wrap_mft_token_id, GAS_FOR_FT_TRANSFER, GAS_FOR_RESOLVE_WITHDRAW_LOCKTOKEN,
+};
+use std::convert::TryInto;
+use near_sdk::Promise;
 use near_sdk::json_types::U128;
+use near_sdk::collections::UnorderedSet;
 
 #[near_bindgen]
 impl Contract {
+    #[payable]
     pub fn set_owner(&mut self, owner_id: ValidAccountId) {
+        assert_one_yocto();
         self.assert_owner();
         self.data_mut().owner_id = owner_id.into();
     }
 
-    /// force clean 
-    pub fn force_clean_farm(&mut self, farm_id: String) -> bool {
+    /// Extend operators. Only can be called by owner.
+    #[payable]
+    pub fn extend_operators(&mut self, operators: Vec<ValidAccountId>) {
+        assert_one_yocto();
         self.assert_owner();
-        self.internal_remove_farm_by_farm_id(&farm_id)
+        for operator in operators {
+            self.data_mut().operators.insert(operator.as_ref());
+        }
     }
 
-    pub fn modify_seed_min_deposit(&mut self, seed_id: String, min_deposit: U128) {
+    /// Remove operators. Only can be called by owner.
+    #[payable]
+    pub fn remove_operators(&mut self, operators: Vec<ValidAccountId>) {
+        assert_one_yocto();
         self.assert_owner();
-        let mut farm_seed = self.get_seed(&seed_id);
-        farm_seed.get_ref_mut().min_deposit = min_deposit.into();
+        for operator in operators {
+            self.data_mut().operators.remove(operator.as_ref());
+        }
     }
 
+    #[payable]
+    pub fn modify_default_stakepool_expire_sec(&mut self, stakepool_expire_sec: u32) {
+        assert_one_yocto();
+        self.assert_owner();
+        self.data_mut().stakepool_expire_sec = stakepool_expire_sec;
+    }
+
+    #[payable]
+    pub fn modify_locktoken_min_deposit(&mut self, locktoken_id: String, min_deposit: U128) {
+        assert_one_yocto();
+        assert!(self.is_owner_or_operators(), "ERR_NOT_ALLOWED");
+        let mut stakepool_locktoken = self.get_locktoken(&locktoken_id);
+        stakepool_locktoken.get_ref_mut().min_deposit = min_deposit.into();
+        self.data_mut().locktokens.insert(&locktoken_id, &stakepool_locktoken);
+    }
+
+    #[payable]
+    pub fn modify_locktoken_slash_rate(&mut self, locktoken_id: String, slash_rate: u32) {
+        assert_one_yocto();
+        assert!(self.is_owner_or_operators(), "ERR_NOT_ALLOWED");
+        assert!(slash_rate as u128 <= DENOM, "INVALID_SLASH_RATE");
+        let mut stakepool_locktoken = self.get_locktoken(&locktoken_id);
+        stakepool_locktoken.get_ref_mut().slash_rate = slash_rate;
+        self.data_mut().locktokens.insert(&locktoken_id, &stakepool_locktoken);
+    }
+
+    #[payable]
+    pub fn modify_cd_strategy_item(&mut self, index: usize, lock_sec: u32, power_reward_rate: u32) {
+        assert_one_yocto();
+        assert!(self.is_owner_or_operators(), "ERR_NOT_ALLOWED");
+        assert!(index < STRATEGY_LIMIT, "{}", ERR62_INVALID_CD_STRATEGY_INDEX);
+
+        if lock_sec == 0 {
+            self.data_mut().cd_strategy.stake_strategy[index] = CDStakeItem{
+                lock_sec: 0,
+                power_reward_rate: 0,
+                enable: false,
+            };
+        } else {
+            self.data_mut().cd_strategy.stake_strategy[index] = CDStakeItem{
+                lock_sec,
+                power_reward_rate,
+                enable: true,
+            };
+        }
+    }
+
+    #[payable]
+    pub fn modify_default_locktoken_slash_rate(&mut self, slash_rate: u32) {
+        assert_one_yocto();
+        assert!(self.is_owner_or_operators(), "ERR_NOT_ALLOWED");
+        self.data_mut().cd_strategy.locktoken_slash_rate = slash_rate;
+    }
+
+    /// Owner retrieve those slashed locktoken
+    #[payable]
+    pub fn withdraw_locktoken_slashed(&mut self, locktoken_id: LockTokenId) -> Promise {
+        assert_one_yocto();
+        assert!(self.is_owner_or_operators(), "ERR_NOT_ALLOWED");
+        let sender_id = self.data().owner_id.clone();
+        // update inner state
+        let amount = self.data_mut().locktokens_slashed.remove(&locktoken_id).unwrap_or(0_u128);
+        assert!(amount > 0, "{}", ERR32_NOT_ENOUGH_LOCKTOKEN);
+
+        let (receiver_id, token_id) = parse_locktoken_id(&locktoken_id);
+        if receiver_id == token_id {
+            ext_fungible_token::ft_transfer(
+                sender_id.clone().try_into().unwrap(),
+                amount.into(),
+                None,
+                &locktoken_id,
+                1, // one yocto near
+                GAS_FOR_FT_TRANSFER,
+            )
+            .then(ext_self::callback_withdraw_locktoken_slashed(
+                locktoken_id.clone(),
+                amount.into(),
+                &env::current_account_id(),
+                0,
+                GAS_FOR_RESOLVE_WITHDRAW_LOCKTOKEN,
+            ))
+        } else {
+            ext_multi_fungible_token::mft_transfer(
+                wrap_mft_token_id(&token_id),
+                sender_id.clone().try_into().unwrap(),
+                amount.into(),
+                None,
+                &receiver_id,
+                1, // one yocto near
+                GAS_FOR_FT_TRANSFER,
+            )
+            .then(ext_self::callback_withdraw_locktoken_slashed(
+                locktoken_id.clone(),
+                amount.into(),
+                &env::current_account_id(),
+                0,
+                GAS_FOR_RESOLVE_WITHDRAW_LOCKTOKEN,
+            ))
+        }
+    }
+
+    /// owner help to return those who lost locktoken when withdraw,
+    /// It's owner's responsibility to verify amount and locktoken id before calling
+    #[payable]
+    pub fn return_locktoken_lostfound(&mut self, sender_id: ValidAccountId, locktoken_id: LockTokenId, amount: U128) -> Promise {
+        assert_one_yocto();
+        self.assert_owner();
+        let sender_id: AccountId = sender_id.into();
+        // update inner state
+        let max_amount = self.data().locktokens_lostfound.get(&locktoken_id).unwrap();
+        assert!(amount.0 <= max_amount, "{}", ERR32_NOT_ENOUGH_LOCKTOKEN);
+        self.data_mut().locktokens_lostfound.insert(&locktoken_id, &(max_amount - amount.0));
+
+        let (receiver_id, token_id) = parse_locktoken_id(&locktoken_id);
+        if receiver_id == token_id {
+            ext_fungible_token::ft_transfer(
+                sender_id.clone().try_into().unwrap(),
+                amount.into(),
+                None,
+                &locktoken_id,
+                1, // one yocto near
+                GAS_FOR_FT_TRANSFER,
+            )
+            .then(ext_self::callback_withdraw_locktoken_lostfound(
+                locktoken_id.clone(),
+                sender_id.clone(),
+                amount.into(),
+                &env::current_account_id(),
+                0,
+                GAS_FOR_RESOLVE_WITHDRAW_LOCKTOKEN,
+            ))
+        } else {
+            ext_multi_fungible_token::mft_transfer(
+                wrap_mft_token_id(&token_id),
+                sender_id.clone().try_into().unwrap(),
+                amount.into(),
+                None,
+                &receiver_id,
+                1, // one yocto near
+                GAS_FOR_FT_TRANSFER,
+            )
+            .then(ext_self::callback_withdraw_locktoken_lostfound(
+                locktoken_id.clone(),
+                sender_id.clone(),
+                amount.into(),
+                &env::current_account_id(),
+                0,
+                GAS_FOR_RESOLVE_WITHDRAW_LOCKTOKEN,
+            ))
+        }
+    }
 
     /// Migration function between versions.
     /// For next version upgrades, change this function.
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
-        assert_eq!(
-            env::predecessor_account_id(),
-            env::current_account_id(),
-            "ERR_NOT_ALLOWED"
-        );
-        let contract: Contract = env::state_read().expect("ERR_NOT_INITIALIZED");
+        let mut contract: Contract = env::state_read().expect("ERR_NOT_INITIALIZED");
+        let data = match contract.data {
+            VersionedContractData::V200(data) => {
+                ContractData {
+                    owner_id: data.owner_id,
+                    staker_count: data.staker_count,
+                    locktokens: data.locktokens,
+                    locktokens_slashed: data.locktokens_slashed,
+                    locktokens_lostfound: data.locktokens_lostfound,
+                    stakers: data.stakers,
+                    stakepools: data.stakepools,
+                    outdated_stakepools: data.outdated_stakepools,
+                    reward_info: data.reward_info,
+                    cd_strategy: data.cd_strategy,
+                    stakepool_expire_sec: DEFAULT_STAKEPOOL_EXPIRE_SEC,
+                    operators: UnorderedSet::new(StorageKeys::Operator),
+                }
+            },
+            VersionedContractData::V201(data) => data,
+        };
+        contract.data = VersionedContractData::V201(data);
         contract
     }
 

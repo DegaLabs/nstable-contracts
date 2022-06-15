@@ -6,8 +6,8 @@ use near_sdk_sim::{call, to_yocto, ContractAccount, UserAccount};
 // use near_sdk_sim::transaction::ExecutionStatus;
 use nstable_exchange::{ContractContract as TestnStable};
 use test_token::ContractContract as TestToken;
-use nstable_farming::{ContractContract as Farming};
-use nstable_farming::{HRSimpleFarmTerms};
+use nstable_stakepooling_v2::{ContractContract as StakePooling};
+use nstable_stakepooling_v2::{HRSimpleStakePoolTerms};
 use near_sdk::serde_json::Value;
 
 use super::init::*;
@@ -17,7 +17,7 @@ use super::utils::*;
 pub(crate) fn prepair_pool_and_liquidity(
     root: &UserAccount, 
     owner: &UserAccount,
-    farming_id: String,
+    stakepooling_id: String,
     lps: Vec<&UserAccount>,
 ) -> (ContractAccount<TestnStable>, ContractAccount<TestToken>, ContractAccount<TestToken>) {
     let pool = deploy_pool(&root, swap(), owner.account_id());
@@ -29,7 +29,7 @@ pub(crate) fn prepair_pool_and_liquidity(
         pool.add_simple_pool(vec![to_va(dai()), to_va(eth())], 25),
         deposit = to_yocto("1")
     ).assert_success();
-    call!(root, pool.mft_register(":0".to_string(), to_va(farming_id)), deposit = to_yocto("1"))
+    call!(root, pool.mft_register(":0".to_string(), to_va(stakepooling_id)), deposit = to_yocto("1"))
     .assert_success();
     for lp in lps {
         add_liquidity(lp, &pool, &token1, &token2, 0);
@@ -60,19 +60,19 @@ pub(crate) fn prepair_pool(
 }
 
 #[allow(dead_code)]
-pub(crate) fn prepair_farm(
+pub(crate) fn prepair_stakepool(
     root: &UserAccount, 
     owner: &UserAccount,
     token: &ContractAccount<TestToken>,
     total_reward: Balance,
-) -> (ContractAccount<Farming>, String) {
-    // create farm
+) -> (ContractAccount<StakePooling>, String) {
+    // create stakepool
     
-    let farming = deploy_farming(&root, farming_id(), owner.account_id());
+    let stakepooling = deploy_stakepooling(&root, stakepooling_id(), owner.account_id());
     let out_come = call!(
         owner,
-        farming.create_simple_farm(HRSimpleFarmTerms{
-            seed_id: format!("{}@0", swap()),
+        stakepooling.create_simple_stakepool(HRSimpleStakePoolTerms{
+            locktoken_id: format!("{}@0", swap()),
             reward_token: to_va(token.account_id()),
             start_at: 0,
             reward_per_session: to_yocto("1").into(),
@@ -81,61 +81,61 @@ pub(crate) fn prepair_farm(
         deposit = to_yocto("1")
     );
     out_come.assert_success();
-    let farm_id: String;
-    if let Value::String(farmid) = out_come.unwrap_json_value() {
-        farm_id = farmid.clone();
+    let stakepool_id: String;
+    if let Value::String(stakepoolid) = out_come.unwrap_json_value() {
+        stakepool_id = stakepoolid.clone();
     } else {
-        farm_id = String::from("N/A");
+        stakepool_id = String::from("N/A");
     }
-    // println!("    Farm {} created at Height#{}", farm_id.clone(), root.borrow_runtime().current_block().block_height);
+    // println!("    StakePool {} created at Height#{}", stakepool_id.clone(), root.borrow_runtime().current_block().block_height);
     
     // deposit reward token
     call!(
         root,
-        token.storage_deposit(Some(to_va(farming_id())), None),
+        token.storage_deposit(Some(to_va(stakepooling_id())), None),
         deposit = to_yocto("1")
     )
     .assert_success();
     mint_token(&token, &root, total_reward.into());
     call!(
         root,
-        token.ft_transfer_call(to_va(farming_id()), total_reward.into(), None, farm_id.clone()),
+        token.ft_transfer_call(to_va(stakepooling_id()), total_reward.into(), None, generate_reward_msg(stakepool_id.clone())),
         deposit = 1
     )
     .assert_success();
-    // println!("    Farm running at Height#{}", root.borrow_runtime().current_block().block_height);
+    // println!("    StakePool running at Height#{}", root.borrow_runtime().current_block().block_height);
 
-    (farming, farm_id)
+    (stakepooling, stakepool_id)
 }
 
 #[allow(dead_code)]
-pub(crate) fn prepair_multi_farms(
+pub(crate) fn prepair_multi_stakepools(
     root: &UserAccount, 
     owner: &UserAccount,
     token: &ContractAccount<TestToken>,
     total_reward: Balance,
-    farm_count: u32,
-) -> (ContractAccount<Farming>, Vec<String>) {
-    // create farms
+    stakepool_count: u32,
+) -> (ContractAccount<StakePooling>, Vec<String>) {
+    // create stakepools
     
-    let farming = deploy_farming(&root, farming_id(), owner.account_id());
-    let mut farm_ids: Vec<String> = vec![];
+    let stakepooling = deploy_stakepooling(&root, stakepooling_id(), owner.account_id());
+    let mut stakepool_ids: Vec<String> = vec![];
 
-    // register farming contract to reward token
+    // register stakepooling contract to reward token
     call!(
         root,
-        token.storage_deposit(Some(to_va(farming_id())), None),
+        token.storage_deposit(Some(to_va(stakepooling_id())), None),
         deposit = to_yocto("1")
     )
     .assert_success();
 
     mint_token(&token, &root, to_yocto("100000"));
 
-    for _ in 0..farm_count {
+    for _ in 0..stakepool_count {
         let out_come = call!(
             owner,
-            farming.create_simple_farm(HRSimpleFarmTerms{
-                seed_id: format!("{}@0", swap()),
+            stakepooling.create_simple_stakepool(HRSimpleStakePoolTerms{
+                locktoken_id: format!("{}@0", swap()),
                 reward_token: to_va(token.account_id()),
                 start_at: 0,
                 reward_per_session: to_yocto("1").into(),
@@ -144,25 +144,41 @@ pub(crate) fn prepair_multi_farms(
             deposit = to_yocto("1")
         );
         out_come.assert_success();
-        let farm_id: String;
-        if let Value::String(farmid) = out_come.unwrap_json_value() {
-            farm_id = farmid.clone();
+        let stakepool_id: String;
+        if let Value::String(stakepoolid) = out_come.unwrap_json_value() {
+            stakepool_id = stakepoolid.clone();
         } else {
-            farm_id = String::from("N/A");
+            stakepool_id = String::from("N/A");
         }
         call!(
             root,
-            token.ft_transfer_call(to_va(farming_id()), total_reward.into(), None, farm_id.clone()),
+            token.ft_transfer_call(to_va(stakepooling_id()), total_reward.into(), None, generate_reward_msg(stakepool_id.clone())),
             deposit = 1
         )
         .assert_success();
 
-        farm_ids.push(farm_id.clone());
+        stakepool_ids.push(stakepool_id.clone());
 
-        println!("  Farm {} created and running at Height#{}", farm_id.clone(), root.borrow_runtime().current_block().block_height);
+        println!("  StakePool {} created and running at Height#{}", stakepool_id.clone(), root.borrow_runtime().current_block().block_height);
+    }
+    if stakepool_count >= 32 {
+        let out_come = call!(
+            owner,
+            stakepooling.create_simple_stakepool(HRSimpleStakePoolTerms{
+                locktoken_id: format!("{}@0", swap()),
+                reward_token: to_va(token.account_id()),
+                start_at: 0,
+                reward_per_session: to_yocto("1").into(),
+                session_interval: 60,
+            }, Some(U128(1000000000000000000))),
+            deposit = to_yocto("1")
+        );
+        assert!(!out_come.is_ok());
+        let ex_status = format!("{:?}", out_come.promise_errors()[0].as_ref().unwrap().status());
+        assert!(ex_status.contains("E36: the number of stakepools has reached its limit"));
     }
     
-    (farming, farm_ids)
+    (stakepooling, stakepool_ids)
 }
 
 pub(crate) fn add_liquidity(

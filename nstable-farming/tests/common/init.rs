@@ -8,24 +8,24 @@ use near_sdk_sim::{call, deploy, to_yocto, ContractAccount, UserAccount};
 use nstable_exchange::{ContractContract as TestnStable};
 
 use test_token::ContractContract as TestToken;
-use nstable_farming::{ContractContract as Farming};
+use nstable_stakepooling_v2::{ContractContract as StakePooling};
 
 
 near_sdk_sim::lazy_static_include::lazy_static_include_bytes! {
     TEST_TOKEN_WASM_BYTES => "../res/test_token.wasm",
     EXCHANGE_WASM_BYTES => "../res/nstable_exchange_release.wasm",
-    FARM_WASM_BYTES => "../res/nstable_farming_release.wasm",
+    STAKEPOOL_WASM_BYTES => "../res/nstable_stakepooling_v2_release.wasm",
 }
 
-pub fn deploy_farming(root: &UserAccount, farming_id: AccountId, owner_id: AccountId) -> ContractAccount<Farming> {
-    let farming = deploy!(
-        contract: Farming,
-        contract_id: farming_id,
-        bytes: &FARM_WASM_BYTES,
+pub fn deploy_stakepooling(root: &UserAccount, stakepooling_id: AccountId, owner_id: AccountId) -> ContractAccount<StakePooling> {
+    let stakepooling = deploy!(
+        contract: StakePooling,
+        contract_id: stakepooling_id,
+        bytes: &STAKEPOOL_WASM_BYTES,
         signer_account: root,
         init_method: new(to_va(owner_id))
     );
-    farming
+    stakepooling
 }
 
 pub fn deploy_pool(root: &UserAccount, contract_id: AccountId, owner_id: AccountId) -> ContractAccount<TestnStable> {

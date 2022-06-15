@@ -30,10 +30,10 @@ pub struct StorageBalance {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(crate = "near_sdk::serde")]
-pub struct SeedInfo {
-    pub seed_id: String,
-    pub seed_type: String,
-    pub farms: Vec<String>,
+pub struct LockTokenInfo {
+    pub locktoken_id: String,
+    pub locktoken_type: String,
+    pub stakepools: Vec<String>,
     pub next_index: u32,
     pub amount: U128,
     pub min_deposit: U128,
