@@ -268,7 +268,7 @@ impl Pool {
 
     fn update_acc_interest_per_share(&mut self) {
         self.acc_interest_per_share = self.get_current_acc_interest_per_share();
-        self.last_acc_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
+        self.last_acc_interest_update_timestamp_sec = get_next_interest_recal_time_sec();
     }
 
     pub fn internal_pay_loan(&mut self, account_id: &AccountId, pay_amount: Balance) {
@@ -435,6 +435,10 @@ impl Pool {
         self.liquidation_history.push(liquidaion_history);
     }
 
+    // pub fn pay_loan_and_withdraw_collateral(&mut self, account_id: &AccountId) -> Balance {
+
+    // }
+
     pub fn compute_current_cr(
         &self,
         account_id: AccountId,
@@ -520,10 +524,10 @@ impl Pool {
         let mut last_acc_interest_update_timestamp_sec =
             self.last_acc_interest_update_timestamp_sec;
         if self.total_borrow == 0 {
-            last_acc_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
+            last_acc_interest_update_timestamp_sec = get_last_interest_recal_time_sec();
         }
         let elapsed_time =
-            env::block_timestamp_ms() / 1000 - last_acc_interest_update_timestamp_sec;
+            get_next_interest_recal_time_sec() - last_acc_interest_update_timestamp_sec;
         let elapsed_time = elapsed_time as u128;
         let generated_interest =
             self.total_borrow * elapsed_time * (self.fixed_interest_rate as u128)

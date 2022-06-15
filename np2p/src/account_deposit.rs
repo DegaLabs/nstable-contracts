@@ -79,7 +79,7 @@ impl AccountDeposit {
             self.total_borrowing_interest += interest;
             self.unpaid_borrowing_interest += interest;
         }
-        self.last_borrowing_interest_update_timestamp_sec = env::block_timestamp_ms() / 1000;
+        self.last_borrowing_interest_update_timestamp_sec = get_next_interest_recal_time_sec();
         interest
     }
 
@@ -290,7 +290,7 @@ impl AccountDeposit {
         }
         let last_borrowing_interest_update_timestamp_sec =
             self.last_borrowing_interest_update_timestamp_sec.clone();
-        let current_time_sec = env::block_timestamp_ms() / 1000;
+        let current_time_sec = get_next_interest_recal_time_sec();
         let interest = self.borrow_amount
             * (((current_time_sec - last_borrowing_interest_update_timestamp_sec) * interest_rate)
                 as u128)

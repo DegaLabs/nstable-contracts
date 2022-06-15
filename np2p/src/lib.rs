@@ -36,6 +36,7 @@ const ACC_INTEREST_PER_SHARE_MULTIPLIER: u128 = 10u128.pow(8 as u32);
 const SECONDS_PER_YEAR: u128 = 365 * 86400;
 const LIQUIDATION_BONUS_DIVISOR: u128 = 10000;
 const LIQUIDATION_MARGINAL_DIVISOR: u128 = 10000;
+const INTEREST_RECAL_PERIOD_SEC: u64 = 600;    //10 minutes
 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
@@ -474,6 +475,16 @@ impl Contract {
             pool.internal_pay_loan(&account_id, amount.0);
         }
     }
+
+    // #[payable]
+    // pub fn pay_loan_and_withdraw_collateral(&mut self, pool_id: u32) -> Promise {
+    //     //pay_loan and withdraw collateral
+    // }
+
+    // #[payable]
+    // pub fn withdraw_lend_asset_and_quit(&mut self, pool_id: u32) -> Promise {
+
+    // }
 
     #[payable]
     pub fn liquidate(

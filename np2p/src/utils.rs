@@ -110,3 +110,11 @@ pub fn compute_cr(
         / (U256::from(borrow_value) * U256::from(10u128.pow(collateral_decimals as u32)));
     cr.as_u64()
 }
+
+pub fn get_last_interest_recal_time_sec() -> u64 {
+    ((env::block_timestamp_ms() / 1000) / INTEREST_RECAL_PERIOD_SEC) * INTEREST_RECAL_PERIOD_SEC
+}
+
+pub fn get_next_interest_recal_time_sec() -> u64 {
+    get_last_interest_recal_time_sec() + INTEREST_RECAL_PERIOD_SEC
+}
