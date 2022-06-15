@@ -37,7 +37,7 @@ const SECONDS_PER_YEAR: u128 = 365 * 86400;
 const LIQUIDATION_BONUS_DIVISOR: u128 = 10000;
 const LIQUIDATION_MARGINAL_DIVISOR: u128 = 10000;
 const INTEREST_RECAL_PERIOD_SEC: u64 = 600; //10 minutes
-
+ 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
     Blacklist,

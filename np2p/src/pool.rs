@@ -47,7 +47,7 @@ pub struct Pool {
     pub acc_interest_per_share: Balance,
     pub last_acc_interest_update_timestamp_sec: u64,
     pub liquidation_bonus: u64, //or price penalty, it means how much discount liquidators can buy collateral tokens using lend token to pay the debt
-    pub liquidation_history: Vec<Liquidation>,
+    pub liquidation_history: Vec<Liquidation>
 }
 
 impl Pool {
@@ -212,6 +212,10 @@ impl Pool {
         self.update_acc_interest_per_share();
         let mut account_deposit = self.get_account_deposit_or_revert(account_id);
         account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
+        account_deposit.update_lending_interest_profit_debt(&self.acc_interest_per_share);
+        self.account_deposits.insert(account_id, &account_deposit);
+        let mut account_deposit = self.get_account_deposit_or_revert(account_id);
+
         log!(
             "balance before withdraw {}",
             account_deposit.get_token_deposit(token_id)
@@ -454,7 +458,8 @@ impl Pool {
         self.account_deposits.insert(account_id, &account_deposit);
         
         //get deposit
-        let remaining_deposit = account_deposit.get_token_deposit(token_id);
+        let mut remaining_deposit = account_deposit.get_token_deposit(token_id);
+        remaining_deposit += account_deposit.get_pending_unpaid_lending_interest_profit(&self.acc_interest_per_share);
         //withdraw
         if remaining_deposit > 0 {
             self.internal_withdraw_from_account(account_id, token_id, remaining_deposit, lend_token_info, lend_token_price, collateral_token_info, collateral_token_price);
@@ -647,7 +652,7 @@ impl Pool {
     }
 
     pub fn get_borrow_and_interest(&self, account_id: &AccountId) -> Balance {
-        self.get_borrow_amount(account_id) + self.compute_unrecorded_interest(account_id)
+        self.get_borrow_amount(account_id) + self.get_pending_unpaid_borrowing_interest(account_id)
     }
 }
 

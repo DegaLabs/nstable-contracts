@@ -105,13 +105,19 @@ impl AccountDeposit {
     }
 
     pub fn update_lending_interest_profit_debt(&mut self, acc_interest_per_share: &Balance) {
-        log!("update_lending_interest_profit_debt account {}", self.owner_id);
+        log!(
+            "update_lending_interest_profit_debt account {}",
+            self.owner_id
+        );
         let current_deposit = self.get_token_deposit(&self.lend_token_id);
         self.lending_interest_profit_debt = (U256::from(current_deposit)
             * U256::from(acc_interest_per_share.clone())
             / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
         .as_u128();
-        log!("update_lending_interest_profit_debt account {} done", self.owner_id);
+        log!(
+            "update_lending_interest_profit_debt account {} done",
+            self.owner_id
+        );
     }
 
     pub fn internal_borrow(
@@ -225,7 +231,7 @@ impl AccountDeposit {
         collateral_token_info: &TokenInfo,
         collateral_token_price: &Price,
         interest_rate: u64,
-        acc_interest_per_share: &Balance,
+        _acc_interest_per_share: &Balance,
         min_cr: u64,
     ) -> Balance {
         let deposit_amount = self.get_token_deposit(token_id);
@@ -245,7 +251,6 @@ impl AccountDeposit {
                 log!("withdrawing {}, {}", deposit_amount, remain);
                 self.deposits
                     .insert(&self.lend_token_id, &(deposit_amount - remain));
-                self.update_lending_profit(interest_rate, acc_interest_per_share);
                 return remain;
             } else {
                 self.unpaid_lending_interest_profit -= remain;
@@ -277,7 +282,6 @@ impl AccountDeposit {
             }
 
             self.deposits.insert(token_id, &collateral_after_withdrawal);
-            self.update_lending_profit(interest_rate, acc_interest_per_share);
             return amount;
         } else {
             env::panic_str("invalid token");
@@ -321,20 +325,21 @@ impl AccountDeposit {
         log!("updating account");
         let mut actual_borrow_paid = self.borrow_amount.clone();
         let mut remain = pay_amount.clone();
+        log!("borrow_amount before remain {}, borrow {}, unpaid_borrowing_interest {}", remain, self.borrow_amount, self.unpaid_borrowing_interest);
         if self.unpaid_borrowing_interest > 0 {
+            log!(
+                "unpaid_borrowing_interest {}",
+                self.unpaid_borrowing_interest
+            );
             if self.unpaid_borrowing_interest > remain {
                 self.unpaid_borrowing_interest -= remain;
                 remain = 0;
             } else {
                 remain -= self.unpaid_borrowing_interest;
-                log!(
-                    "unpaid_borrowing_interest {}",
-                    self.unpaid_borrowing_interest
-                );
                 self.unpaid_borrowing_interest = 0;
             }
         }
-        log!("borrow_amount before {}", self.borrow_amount);
+        log!("borrow_amount before 2 remain {}, borrow {}, unpaid_borrowing_interest {}", remain, self.borrow_amount, self.unpaid_borrowing_interest);
         if self.borrow_amount > 0 {
             if self.borrow_amount > remain {
                 self.borrow_amount -= remain;
@@ -344,7 +349,7 @@ impl AccountDeposit {
                 self.borrow_amount = 0;
             }
         }
-        log!("borrow_amount after {}", self.borrow_amount);
+        log!("borrow_amount after remain {}, borrow {}, unpaid_borrowing_interest {}", remain, self.borrow_amount, self.unpaid_borrowing_interest);
         actual_borrow_paid -= self.borrow_amount;
         log!("actual_borrow_paid {}", actual_borrow_paid);
 
@@ -357,10 +362,7 @@ impl AccountDeposit {
         (actual_borrow_paid, remain)
     }
 
-    pub fn reduce_collateral(
-        &mut self,
-        amount: Balance
-    ) {
+    pub fn reduce_collateral(&mut self, amount: Balance) {
         let collateral_amount = self.get_token_deposit(&self.collateral_token_id);
         require!(amount <= collateral_amount, "!reduce_collateral");
         self.deposits
