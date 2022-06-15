@@ -36,7 +36,7 @@ const ACC_INTEREST_PER_SHARE_MULTIPLIER: u128 = 10u128.pow(8 as u32);
 const SECONDS_PER_YEAR: u128 = 365 * 86400;
 const LIQUIDATION_BONUS_DIVISOR: u128 = 10000;
 const LIQUIDATION_MARGINAL_DIVISOR: u128 = 10000;
-const INTEREST_RECAL_PERIOD_SEC: u64 = 600;    //10 minutes
+const INTEREST_RECAL_PERIOD_SEC: u64 = 600; //10 minutes
 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
@@ -48,10 +48,7 @@ enum StorageKey {
     DepositedPools,
     BorrowPools,
     UserStorage,
-    AccountDeposit {
-        pool_id: u32,
-        account_id: AccountId
-    },
+    AccountDeposit { pool_id: u32, account_id: AccountId },
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -476,15 +473,83 @@ impl Contract {
         }
     }
 
-    // #[payable]
-    // pub fn pay_loan_and_withdraw_collateral(&mut self, pool_id: u32) -> Promise {
-    //     //pay_loan and withdraw collateral
-    // }
+    //pay_loan and withdraw collateral
+    #[payable]
+    pub fn pay_loan_and_withdraw_lend_token(&mut self, pool_id: u32) -> Promise {
+        let account_id = env::predecessor_account_id();
+        assert_one_yocto();
+        self.abort_if_pause();
+        self.abort_if_blacklisted(account_id.clone());
+        self.abort_if_pool_id_valid(pool_id.clone() as usize);
 
-    // #[payable]
-    // pub fn withdraw_lend_asset_and_quit(&mut self, pool_id: u32) -> Promise {
+        let pool = self
+            .pools
+            .get(pool_id as usize)
+            .expect("pool_id out of range");
+        let lend_token_info = self.get_token_info(pool.lend_token_id.clone());
+        let lend_token_price = self.price_data.price(&pool.lend_token_id.clone());
 
-    // }
+        let collateral_token_info = self.get_token_info(pool.collateral_token_id.clone());
+        let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
+        let withdrawn_amount: Balance;
+        {
+            let pool = &mut self.pools[pool_id as usize];
+            pool.internal_pay_borrowing_and_interest(&account_id);
+
+            withdrawn_amount = pool.internal_withdraw_all_from_account(
+                &account_id,
+                &lend_token_info.token_id,
+                &lend_token_info,
+                &lend_token_price,
+                &collateral_token_info,
+                &collateral_token_price,
+            );
+        }
+
+        if withdrawn_amount > 0 {
+            self.internal_send_tokens(pool_id, &lend_token_info.token_id, &account_id, withdrawn_amount)
+        } else {
+            Promise::new(account_id)
+        }
+    }
+
+    #[payable]
+    pub fn withdraw_collateral_asset_and_quit(&mut self, pool_id: u32) -> Promise {
+        let account_id = env::predecessor_account_id();
+        assert_one_yocto();
+        self.abort_if_pause();
+        self.abort_if_blacklisted(account_id.clone());
+        self.abort_if_pool_id_valid(pool_id.clone() as usize);
+
+        let pool = self
+            .pools
+            .get(pool_id as usize)
+            .expect("pool_id out of range");
+        let lend_token_info = self.get_token_info(pool.lend_token_id.clone());
+        let lend_token_price = self.price_data.price(&pool.lend_token_id.clone());
+
+        let collateral_token_info = self.get_token_info(pool.collateral_token_id.clone());
+        let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
+        let withdrawn_amount: Balance;
+        {
+            let pool = &mut self.pools[pool_id as usize];
+            //users must pay all interest before being able to withdraw all collateral
+            withdrawn_amount = pool.internal_withdraw_all_from_account(
+                &account_id,
+                &collateral_token_info.token_id,
+                &lend_token_info,
+                &lend_token_price,
+                &collateral_token_info,
+                &collateral_token_price,
+            );
+        }
+
+        if withdrawn_amount > 0 {
+            self.internal_send_tokens(pool_id, &collateral_token_info.token_id, &account_id, withdrawn_amount)
+        } else {
+            Promise::new(account_id)
+        }
+    }
 
     #[payable]
     pub fn liquidate(
@@ -821,7 +886,11 @@ mod tests {
                     .attached_deposit(1 * ONE_NEAR)
                     .predecessor_account_id(collateral_token_id.clone())
                     .build());
-                log!("Depositing to pool {}, token {}", i, collateral_token_id.clone());
+                log!(
+                    "Depositing to pool {}, token {}",
+                    i,
+                    collateral_token_id.clone()
+                );
                 let message = TokenReceiverMessage::Deposit { pool_id: i };
                 contract.ft_on_transfer(
                     get_account(j),

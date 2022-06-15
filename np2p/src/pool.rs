@@ -133,23 +133,6 @@ impl Pool {
         self.account_deposits.insert(account_id, &account_deposit);
     }
 
-    pub fn get_account_deposit(&self, account_id: &AccountId) -> AccountDeposit {
-        if self.account_deposits.get(account_id).is_some() {
-            return self.account_deposits.get(account_id).unwrap();
-        }
-        AccountDeposit::new(
-            self.pool_id.clone(),
-            account_id.clone(),
-            self.lend_token_id.clone(),
-            self.collateral_token_id.clone(),
-        )
-    }
-
-    pub fn get_account_deposit_or_revert(&self, account_id: &AccountId) -> AccountDeposit {
-        self.account_deposits
-            .get(account_id)
-            .expect("account not registered")
-    }
     pub fn internal_borrow(
         &mut self,
         account_id: &AccountId,
@@ -219,7 +202,7 @@ impl Pool {
     pub fn internal_withdraw_from_account(
         &mut self,
         account_id: &AccountId,
-        token_id: &AccountId,
+        token_id: &AssetId,
         amount: Balance,
         lend_token_info: &TokenInfo,
         lend_token_price: &Price,
@@ -435,9 +418,68 @@ impl Pool {
         self.liquidation_history.push(liquidaion_history);
     }
 
-    // pub fn pay_loan_and_withdraw_collateral(&mut self, account_id: &AccountId) -> Balance {
+    pub fn internal_pay_borrowing_and_interest(&mut self, account_id: &AccountId) {
+        self.update_acc_interest_per_share();
+        let mut account_deposit = self.get_account_deposit_or_revert(account_id);
+        account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
+        let borrowing_and_interest = self.get_borrow_and_interest(account_id);
+        log!(
+            "internal_pay_borrowing_and_interest: borrowing_and_interest {}",
+            borrowing_and_interest
+        );
+        
+        let (paid_borrow, added_liquidity) =
+            account_deposit.internal_pay_loan(borrowing_and_interest);
+        account_deposit.update_lending_interest_profit_debt(&self.acc_interest_per_share);
+        self.account_deposits.insert(account_id, &account_deposit);
 
-    // }
+        self.total_borrow -= paid_borrow;
+        self.total_lend_asset_deposit =
+            self.total_lend_asset_deposit + added_liquidity - borrowing_and_interest;
+    }
+
+    pub fn internal_withdraw_all_from_account(
+        &mut self,
+        account_id: &AccountId,
+        token_id: &AssetId,
+        lend_token_info: &TokenInfo,
+        lend_token_price: &Price,
+        collateral_token_info: &TokenInfo,
+        collateral_token_price: &Price,
+    ) -> Balance {
+        self.update_acc_interest_per_share();
+        let mut account_deposit = self.get_account_deposit_or_revert(account_id);
+        account_deposit.update_account(self.fixed_interest_rate, &self.acc_interest_per_share);
+        account_deposit.update_lending_interest_profit_debt(&self.acc_interest_per_share);
+        self.account_deposits.insert(account_id, &account_deposit);
+        
+        //get deposit
+        let remaining_deposit = account_deposit.get_token_deposit(token_id);
+        //withdraw
+        if remaining_deposit > 0 {
+            self.internal_withdraw_from_account(account_id, token_id, remaining_deposit, lend_token_info, lend_token_price, collateral_token_info, collateral_token_price);
+        }
+
+        remaining_deposit
+    }
+
+    pub fn get_account_deposit(&self, account_id: &AccountId) -> AccountDeposit {
+        if self.account_deposits.get(account_id).is_some() {
+            return self.account_deposits.get(account_id).unwrap();
+        }
+        AccountDeposit::new(
+            self.pool_id.clone(),
+            account_id.clone(),
+            self.lend_token_id.clone(),
+            self.collateral_token_id.clone(),
+        )
+    }
+
+    pub fn get_account_deposit_or_revert(&self, account_id: &AccountId) -> AccountDeposit {
+        self.account_deposits
+            .get(account_id)
+            .expect("account not registered")
+    }
 
     pub fn compute_current_cr(
         &self,
@@ -602,6 +644,10 @@ impl Pool {
 
         let account_deposit = self.get_account_deposit(account_id);
         account_deposit.borrow_amount
+    }
+
+    pub fn get_borrow_and_interest(&self, account_id: &AccountId) -> Balance {
+        self.get_borrow_amount(account_id) + self.compute_unrecorded_interest(account_id)
     }
 }
 

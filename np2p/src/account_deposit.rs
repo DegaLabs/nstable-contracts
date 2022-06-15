@@ -315,6 +315,9 @@ impl AccountDeposit {
     // }
 
     pub fn internal_pay_loan(&mut self, pay_amount: Balance) -> (Balance, Balance) {
+        if pay_amount == 0 {
+            return (0, 0);
+        }
         log!("updating account");
         let mut actual_borrow_paid = self.borrow_amount.clone();
         let mut remain = pay_amount.clone();
