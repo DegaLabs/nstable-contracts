@@ -38,6 +38,6 @@
   "network": "testnet",
   "targetContracts": [
     "naistable.deganstable.testnet",
-    "np2pv1.deganstable.testnet"
+    "np2pv3.deganstable.testnet"
   ]
 }
