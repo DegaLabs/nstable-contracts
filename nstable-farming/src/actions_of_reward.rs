@@ -3,45 +3,38 @@ use std::convert::TryInto;
 use near_sdk::json_types::{ValidAccountId, U128};
 use near_sdk::{assert_one_yocto, env, near_bindgen, AccountId, Balance, PromiseResult};
 
-use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER, GAS_FOR_RESOLVE_TRANSFER, parse_farm_id};
+use crate::utils::{ext_fungible_token, ext_self, GAS_FOR_FT_TRANSFER, GAS_FOR_RESOLVE_TRANSFER, parse_stakepool_id, U256};
 use crate::errors::*;
 use crate::*;
-use uint::construct_uint;
 
-construct_uint! {
-    /// 256-bit unsigned integer.
-    pub struct U256(4);
-}
 
 #[near_bindgen]
 impl Contract {
 
     /// Clean invalid rps,
     /// return false if the rps is still valid.
-    pub fn remove_user_rps_by_farm(&mut self, farm_id: FarmId) -> bool {
+    pub fn remove_user_rps_by_stakepool(&mut self, stakepool_id: StakePoolId) -> bool {
         let sender_id = env::predecessor_account_id();
-        let mut farmer = self.get_farmer(&sender_id);
-        let (seed_id, _) = parse_farm_id(&farm_id);
-        let farm_seed = self.get_seed(&seed_id);
-        if !farm_seed.get_ref().farms.contains(&farm_id) {
-            farmer.get_ref_mut().remove_rps(&farm_id);
-            self.data_mut().farmers.insert(&sender_id, &farmer);
+        let mut staker = self.get_staker(&sender_id);
+        let (locktoken_id, _) = parse_stakepool_id(&stakepool_id);
+        let stakepool_locktoken = self.get_locktoken(&locktoken_id);
+        if !stakepool_locktoken.get_ref().stakepools.contains(&stakepool_id) {
+            staker.get_ref_mut().remove_rps(&stakepool_id);
+            self.data_mut().stakers.insert(&sender_id, &staker);
             true
         } else {
             false
         }
     }
 
-    pub fn claim_reward_by_farm(&mut self, farm_id: FarmId) {
+    pub fn claim_reward_by_stakepool(&mut self, stakepool_id: StakePoolId) {
         let sender_id = env::predecessor_account_id();
-        self.internal_claim_user_reward_by_farm_id(&sender_id, &farm_id);
-        self.assert_storage_usage(&sender_id);
+        self.internal_claim_user_reward_by_stakepool_id(&sender_id, &stakepool_id);
     }
 
-    pub fn claim_reward_by_seed(&mut self, seed_id: SeedId) {
+    pub fn claim_reward_by_locktoken(&mut self, locktoken_id: LockTokenId) {
         let sender_id = env::predecessor_account_id();
-        self.internal_claim_user_reward_by_seed_id(&sender_id, &seed_id);
-        self.assert_storage_usage(&sender_id);
+        self.internal_claim_user_reward_by_locktoken_id(&sender_id, &locktoken_id);
     }
 
     /// Withdraws given reward token of given user.
@@ -54,11 +47,11 @@ impl Contract {
 
         let sender_id = env::predecessor_account_id();
 
-        let mut farmer = self.get_farmer(&sender_id);
+        let mut staker = self.get_staker(&sender_id);
 
         // Note: subtraction, will be reverted if the promise fails.
-        let amount = farmer.get_ref_mut().sub_reward(&token_id, amount);
-        self.data_mut().farmers.insert(&sender_id, &farmer);
+        let amount = staker.get_ref_mut().sub_reward(&token_id, amount);
+        self.data_mut().stakers.insert(&sender_id, &staker);
         ext_fungible_token::ft_transfer(
             sender_id.clone().try_into().unwrap(),
             amount.into(),
@@ -111,42 +104,42 @@ impl Contract {
                     .as_bytes(),
                 );
                 // This reverts the changes from withdraw function.
-                let mut farmer = self.get_farmer(&sender_id);
-                farmer.get_ref_mut().add_reward(&token_id, amount.0);
-                self.data_mut().farmers.insert(&sender_id, &farmer);
+                let mut staker = self.get_staker(&sender_id);
+                staker.get_ref_mut().add_reward(&token_id, amount.0);
+                self.data_mut().stakers.insert(&sender_id, &staker);
                 0.into()
             }
         }
     }
 }
 
-fn claim_user_reward_from_farm(
-    farm: &mut Farm, 
-    farmer: &mut Farmer, 
-    total_seeds: &Balance,
+fn claim_user_reward_from_stakepool(
+    stakepool: &mut StakePool, 
+    staker: &mut Staker, 
+    total_locktokens: &Balance,
     silent: bool,
 ) {
-    let user_seeds = farmer.seeds.get(&farm.get_seed_id()).unwrap_or(&0_u128);
-    let user_rps = farmer.get_rps(&farm.get_farm_id());
-    let (new_user_rps, reward_amount) = farm.claim_user_reward(&user_rps, user_seeds, total_seeds, silent);
+    let user_locktokens = staker.locktoken_powers.get(&stakepool.get_locktoken_id()).unwrap_or(&0_u128);
+    let user_rps = staker.get_rps(&stakepool.get_stakepool_id());
+    let (new_user_rps, reward_amount) = stakepool.claim_user_reward(&user_rps, user_locktokens, total_locktokens, silent);
     if !silent {
         env::log(
             format!(
                 "user_rps@{} increased to {}",
-                farm.get_farm_id(), U256::from_little_endian(&new_user_rps),
+                stakepool.get_stakepool_id(), U256::from_little_endian(&new_user_rps),
             )
             .as_bytes(),
         );
     }
         
-    farmer.set_rps(&farm.get_farm_id(), new_user_rps);
+    staker.set_rps(&stakepool.get_stakepool_id(), new_user_rps);
     if reward_amount > 0 {
-        farmer.add_reward(&farm.get_reward_token(), reward_amount);
+        staker.add_reward(&stakepool.get_reward_token(), reward_amount);
         if !silent {
             env::log(
                 format!(
                     "claimed {} {} as reward from {}",
-                    reward_amount, farm.get_reward_token() , farm.get_farm_id(),
+                    reward_amount, stakepool.get_reward_token() , stakepool.get_stakepool_id(),
                 )
                 .as_bytes(),
             );
@@ -156,55 +149,55 @@ fn claim_user_reward_from_farm(
 
 impl Contract {
 
-    pub(crate) fn internal_claim_user_reward_by_seed_id(
+    pub(crate) fn internal_claim_user_reward_by_locktoken_id(
         &mut self, 
         sender_id: &AccountId,
-        seed_id: &SeedId) {
-        let mut farmer = self.get_farmer(sender_id);
-        if let Some(mut farm_seed) = self.get_seed_wrapped(seed_id) {
-            let amount = farm_seed.get_ref().amount;
-            for farm_id in &mut farm_seed.get_ref_mut().farms.iter() {
-                let mut farm = self.data().farms.get(farm_id).unwrap();
-                claim_user_reward_from_farm(
-                    &mut farm, 
-                    farmer.get_ref_mut(),  
+        locktoken_id: &LockTokenId) {
+        let mut staker = self.get_staker(sender_id);
+        if let Some(mut stakepool_locktoken) = self.get_locktoken_wrapped(locktoken_id) {
+            let amount = stakepool_locktoken.get_ref().total_locktoken_power;
+            for stakepool_id in &mut stakepool_locktoken.get_ref_mut().stakepools.iter() {
+                let mut stakepool = self.data().stakepools.get(stakepool_id).unwrap();
+                claim_user_reward_from_stakepool(
+                    &mut stakepool, 
+                    staker.get_ref_mut(),  
                     &amount,
                     true,
                 );
-                self.data_mut().farms.insert(farm_id, &farm);
+                self.data_mut().stakepools.insert(stakepool_id, &stakepool);
             }
-            self.data_mut().seeds.insert(seed_id, &farm_seed);
-            self.data_mut().farmers.insert(sender_id, &farmer);
+            self.data_mut().locktokens.insert(locktoken_id, &stakepool_locktoken);
+            self.data_mut().stakers.insert(sender_id, &staker);
         }
     }
 
-    pub(crate) fn internal_claim_user_reward_by_farm_id(
+    pub(crate) fn internal_claim_user_reward_by_stakepool_id(
         &mut self, 
         sender_id: &AccountId, 
-        farm_id: &FarmId) {
-        let mut farmer = self.get_farmer(sender_id);
+        stakepool_id: &StakePoolId) {
+        let mut staker = self.get_staker(sender_id);
 
-        let (seed_id, _) = parse_farm_id(farm_id);
+        let (locktoken_id, _) = parse_stakepool_id(stakepool_id);
 
-        if let Some(farm_seed) = self.get_seed_wrapped(&seed_id) {
-            let amount = farm_seed.get_ref().amount;
-            if let Some(mut farm) = self.data().farms.get(farm_id) {
-                claim_user_reward_from_farm(
-                    &mut farm, 
-                    farmer.get_ref_mut(), 
+        if let Some(stakepool_locktoken) = self.get_locktoken_wrapped(&locktoken_id) {
+            let amount = stakepool_locktoken.get_ref().total_locktoken_power;
+            if let Some(mut stakepool) = self.data().stakepools.get(stakepool_id) {
+                claim_user_reward_from_stakepool(
+                    &mut stakepool, 
+                    staker.get_ref_mut(), 
                     &amount,
                     false,
                 );
-                self.data_mut().farms.insert(farm_id, &farm);
-                self.data_mut().farmers.insert(sender_id, &farmer);
+                self.data_mut().stakepools.insert(stakepool_id, &stakepool);
+                self.data_mut().stakers.insert(sender_id, &staker);
             }
         }
     }
 
 
     #[inline]
-    pub(crate) fn get_farmer(&self, from: &AccountId) -> VersionedFarmer {
-        let orig = self.data().farmers
+    pub(crate) fn get_staker(&self, from: &AccountId) -> VersionedStaker {
+        let orig = self.data().stakers
             .get(from)
             .expect(ERR10_ACC_NOT_REGISTERED);
         if orig.need_upgrade() {
@@ -215,8 +208,8 @@ impl Contract {
     }
 
     #[inline]
-    pub(crate) fn get_farmer_default(&self, from: &AccountId) -> VersionedFarmer {
-        let orig = self.data().farmers.get(from).unwrap_or(VersionedFarmer::new(from.clone(), 0));
+    pub(crate) fn get_staker_default(&self, from: &AccountId) -> VersionedStaker {
+        let orig = self.data().stakers.get(from).unwrap_or(VersionedStaker::new(from.clone()));
         if orig.need_upgrade() {
             orig.upgrade()
         } else {
@@ -225,12 +218,12 @@ impl Contract {
     }
 
     #[inline]
-    pub(crate) fn get_farmer_wrapped(&self, from: &AccountId) -> Option<VersionedFarmer> {
-        if let Some(farmer) = self.data().farmers.get(from) {
-            if farmer.need_upgrade() {
-                Some(farmer.upgrade())
+    pub(crate) fn get_staker_wrapped(&self, from: &AccountId) -> Option<VersionedStaker> {
+        if let Some(staker) = self.data().stakers.get(from) {
+            if staker.need_upgrade() {
+                Some(staker.upgrade())
             } else {
-                Some(farmer)
+                Some(staker)
             }
         } else {
             None
@@ -244,7 +237,7 @@ impl Contract {
         sender_id: &AccountId,
         token_id: &AccountId,
     ) -> Balance {
-        self.get_farmer_default(sender_id)
+        self.get_staker_default(sender_id)
             .get_ref().rewards.get(token_id).cloned()
             .unwrap_or_default()
     }

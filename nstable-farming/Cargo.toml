@@ -1,14 +1,14 @@
 [package]
 name = "nstable_farming"
-version = "1.0.2"
-authors = ["Marco Sun <sun.dsk1@gmail.com>"]
-edition = "2018"
+version = "2.1.6"
+authors = ["Degalabs"]
+edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-uint = { version = "0.9.0", default-features = false }
+uint = { version = "0.9.3", default-features = false }
 near-sdk = "3.1.0"
 near-contract-standards = "3.1.0"
 

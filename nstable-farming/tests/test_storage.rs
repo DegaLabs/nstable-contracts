@@ -1,117 +1,48 @@
-use near_sdk_sim::{view, call, init_simulator, to_yocto};
-// use near_sdk::json_types::{U128};
-use near_sdk::serde_json::Value;
-use nstable_farming::{HRSimpleFarmTerms};
+use near_sdk_sim::{call, init_simulator, to_yocto};
 
 use crate::common::utils::*;
-use crate::common::init::deploy_farming;
-use crate::common::views::*;
-use crate::common::actions::*;
+use crate::common::init::deploy_stakepooling;
+
 
 mod common;
 
 #[test]
 fn storage_stake() {
-    let root = init_simulator(None);
+    generate_user_account!(root, owner, staker1, staker2);
 
-    let owner = root.create_user("owner".to_string(), to_yocto("100"));
-    let farmer1 = root.create_user("farmer1".to_string(), to_yocto("100"));
-    let farmer2 = root.create_user("farmer2".to_string(), to_yocto("100"));
+    let stakepooling = deploy_stakepooling(&root, stakepooling_id(), owner.account_id());
 
-    let farming = deploy_farming(&root, farming_id(), owner.account_id());
+    // staker1 register
+    assert_err!(call!(staker1, stakepooling.storage_deposit(None, None), deposit = to_yocto("0.01")),
+        "E11: insufficient $NEAR storage deposit");
 
-    // farmer1 register with only_register set to false
-    let out_come = call!(farmer1, farming.storage_deposit(None, None), deposit = to_yocto("1"));
-    out_come.assert_success();
-    let sb = out_come.unwrap_json::<StorageBalance>();
-    assert_eq!(sb.total.0, to_yocto("1"));
-    assert_eq!(sb.available.0, to_yocto("0.99908"));
-    assert!(farmer1.account().unwrap().amount < to_yocto("99"));
+    let orig_user_balance = staker1.account().unwrap().amount;
+    call!(staker1, stakepooling.storage_deposit(None, None), deposit = to_yocto("0.1")).assert_success();
+    assert!(orig_user_balance - staker1.account().unwrap().amount > to_yocto("0.1"));
+    assert!(orig_user_balance - staker1.account().unwrap().amount < to_yocto("0.11"));
 
-    // farmer1 withdraw storage
-    let out_come = call!(farmer1, farming.storage_withdraw(None), deposit = 1);
-    out_come.assert_success();
-    let sb = out_come.unwrap_json::<StorageBalance>();
-    assert_eq!(sb.total.0, to_yocto("0.00092"));
-    assert_eq!(sb.available.0, to_yocto("0"));
-    assert!(farmer1.account().unwrap().amount > to_yocto("99.9"));
+    // staker1 repeat register
+    let orig_user_balance = staker1.account().unwrap().amount;
+    call!(staker1, stakepooling.storage_deposit(None, None), deposit = to_yocto("0.1")).assert_success();
+    assert!(orig_user_balance - staker1.account().unwrap().amount < to_yocto("0.001"));
 
-    // farmer1 unregister storage
-    let out_come = call!(farmer1, farming.storage_unregister(None), deposit = 1);
-    out_come.assert_success();
-    let ret = out_come.unwrap_json_value();
-    assert_eq!(ret, Value::Bool(true));
-    let ret = view!(farming.storage_balance_of(farmer1.valid_account_id())).unwrap_json_value();
-    assert_eq!(ret, Value::Null);
-    assert!(farmer1.account().unwrap().amount > to_yocto("99.99"));
-
-    // farmer1 register with only_register set to true
-    let out_come = call!(farmer1, farming.storage_deposit(None, Some(true)), deposit = to_yocto("1"));
-    out_come.assert_success();
-    let sb = out_come.unwrap_json::<StorageBalance>();
-    // println!("{:#?}", sb);
-    assert_eq!(sb.total.0, to_yocto("0.01852"));
-    assert_eq!(sb.available.0, to_yocto("0.01760"));
-
-    // farmer1 help farmer2 register with only_register set to false
-    let out_come = call!(farmer1, farming.storage_deposit(Some(to_va(farmer2.account_id())), Some(false)), deposit = to_yocto("1"));
-    out_come.assert_success();
-    let sb = out_come.unwrap_json::<StorageBalance>();
-    assert_eq!(sb.total.0, to_yocto("1"));
-    assert_eq!(sb.available.0, to_yocto("0.99908"));
-    let sb = show_storage_balance(&farming, farmer2.account_id(), false);
-    assert_eq!(sb.total.0, to_yocto("1"));
-    assert_eq!(sb.available.0, to_yocto("0.99908"));
-    let sb = show_storage_balance(&farming, farmer1.account_id(), false);
-    assert_eq!(sb.total.0, to_yocto("0.01852"));
-    assert_eq!(sb.available.0, to_yocto("0.01760"));
-    assert!(farmer1.account().unwrap().amount < to_yocto("99"));
-    assert_eq!(farmer2.account().unwrap().amount, to_yocto("100"));
-    
-    // insurfficent storage and deposit more
-    let out_come = call!(farmer1, farming.storage_withdraw(None), deposit = 1);
-    out_come.assert_success();
-    let sb = out_come.unwrap_json::<StorageBalance>();
-    assert_eq!(sb.total.0, to_yocto("0.00092"));
-    assert_eq!(sb.available.0, to_yocto("0"));
-
-    let (pool, token1, _) = prepair_pool_and_liquidity(&root, &owner, farming_id(), vec![&farmer1]);
-    let out_come = call!(
-        owner,
-        farming.create_simple_farm(HRSimpleFarmTerms{
-            seed_id: format!("{}@0", pool.account_id()),
-            reward_token: token1.valid_account_id(),
-            start_at: 0,
-            reward_per_session: to_yocto("1").into(),
-            session_interval: 60,
-        }, None),
-        deposit = to_yocto("1")
-    );
-    out_come.assert_success();
-
-    let out_come = call!(
-        farmer1,
-        pool.mft_transfer_call(":0".to_string(), to_va(farming_id()), to_yocto("0.5").into(), None, "".to_string()),
-        deposit = 1
-    );
-    out_come.assert_success();
+    // staker1 withdraw storage
+    let out_come = call!(staker1, stakepooling.storage_withdraw(None), deposit = 1);
     let ex_status = format!("{:?}", out_come.promise_errors()[0].as_ref().unwrap().status());
-    assert!(ex_status.contains("E11: insufficient $NEAR storage deposit"));
-    let user_seeds = show_userseeds(&farming, farmer1.account_id(), false);
-    assert!(user_seeds.get(&String::from("swap@0")).is_none());
+    assert!(ex_status.contains("E14: no storage can withdraw"));
 
-    let out_come = call!(farmer1, farming.storage_deposit(None, Some(false)), deposit = to_yocto("1"));
-    out_come.assert_success();
-    let sb = out_come.unwrap_json::<StorageBalance>();
-    assert_eq!(sb.total.0, to_yocto("1.00092"));
-    assert_eq!(sb.available.0, to_yocto("1"));
+    // staker1 unregister storage
+    let orig_user_balance = staker1.account().unwrap().amount;
+    call!(staker1, stakepooling.storage_unregister(None), deposit = 1).assert_success();
+    assert!(staker1.account().unwrap().amount - orig_user_balance > to_yocto("0.09"));
+    assert!(staker1.account().unwrap().amount - orig_user_balance < to_yocto("0.1"));
 
-    let out_come = call!(
-        farmer1,
-        pool.mft_transfer_call(":0".to_string(), to_va(farming_id()), to_yocto("0.5").into(), None, "".to_string()),
-        deposit = 1
-    );
+    // staker1 help staker2 register
+    let orig_user_balance = staker1.account().unwrap().amount;
+    let orig_user_balance_famer2 = staker2.account().unwrap().amount;
+    let out_come = call!(staker1, stakepooling.storage_deposit(Some(to_va(staker2.account_id())), None), deposit = to_yocto("1"));
     out_come.assert_success();
-    let user_seeds = show_userseeds(&farming, farmer1.account_id(), false);
-    assert_eq!(user_seeds.get(&String::from("swap@0")).unwrap().0, to_yocto("0.5"));
+    assert!(orig_user_balance - staker1.account().unwrap().amount > to_yocto("0.1"));
+    assert!(orig_user_balance - staker1.account().unwrap().amount < to_yocto("0.11"));
+    assert!(orig_user_balance_famer2 - staker2.account().unwrap().amount == 0);
 }
