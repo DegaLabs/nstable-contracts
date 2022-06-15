@@ -1,7 +1,7 @@
 [package]
 name = "nstable_farming"
 version = "2.1.6"
-authors = ["Marco Sun <sun.dsk1@gmail.com>"]
+authors = ["Degalabs"]
 edition = "2021"
 
 [lib]
