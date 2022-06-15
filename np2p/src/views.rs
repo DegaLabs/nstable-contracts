@@ -417,7 +417,7 @@ impl Contract {
         let total_collateral_amount =
             collateral_amount.0 + pool.get_token_deposit(&account_id, &pool.collateral_token_id);
         let mut total_borrow =
-            borrow_amount.0 + pool.get_token_deposit(&account_id, &pool.lend_token_id);
+            borrow_amount.0 + pool.get_borrow_amount(&account_id) + pool.compute_unrecorded_interest(&account_id);
 
         if total_borrow == 0 {
             return Price::default();

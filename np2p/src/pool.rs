@@ -594,6 +594,15 @@ impl Pool {
         let account_deposit = self.get_account_deposit(account_id);
         account_deposit.get_token_deposit(token_id)
     }
+
+    pub fn get_borrow_amount(&self, account_id: &AccountId) -> Balance {
+        if self.account_deposits.get(account_id).is_none() {
+            return 0;
+        }
+
+        let account_deposit = self.get_account_deposit(account_id);
+        account_deposit.borrow_amount
+    }
 }
 
 pub fn new_pool_default(
