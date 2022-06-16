@@ -36,8 +36,8 @@ const ACC_INTEREST_PER_SHARE_MULTIPLIER: u128 = 10u128.pow(8 as u32);
 const SECONDS_PER_YEAR: u128 = 365 * 86400;
 const LIQUIDATION_BONUS_DIVISOR: u128 = 10000;
 const LIQUIDATION_MARGINAL_DIVISOR: u128 = 10000;
+const FOUNDATION_COMMISSION_DIVISOR: u128 = 10000;
 const INTEREST_RECAL_PERIOD_SEC: u64 = 600; //10 minutes
- 
 #[derive(BorshStorageKey, BorshSerialize)]
 enum StorageKey {
     Blacklist,
@@ -49,6 +49,7 @@ enum StorageKey {
     BorrowPools,
     UserStorage,
     AccountDeposit { pool_id: u32, account_id: AccountId },
+    Commissions,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -108,6 +109,13 @@ impl TokenInfo {
     }
 }
 
+#[derive(BorshDeserialize, BorshSerialize, Clone, Serialize, Deserialize)]
+#[serde(crate = "near_sdk::serde")]
+pub struct Commission {
+    pub claimed: U128,
+    pub total: U128,
+}
+
 #[near_bindgen]
 #[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct Contract {
@@ -131,6 +139,8 @@ pub struct Contract {
     storage_usage_join_pool: StorageUsage,
     account_list: Vec<AccountId>,
     liquidation_marginal: u64, //how mujch in terms of % the treasury got
+    foundation_commission: u64,
+    commissions: UnorderedMap<AssetId, Commission>,
 }
 
 #[near_bindgen]
@@ -167,6 +177,8 @@ impl Contract {
             storage_usage_join_pool: 0,
             account_list: vec![],
             liquidation_marginal: 5000,
+            foundation_commission: 1000,
+            commissions: UnorderedMap::new(StorageKey::Commissions),
         };
 
         this.measure_account_storage_usage();
@@ -176,6 +188,39 @@ impl Contract {
     pub fn set_foundation_id(&mut self, account_id: AccountId) {
         self.assert_governance();
         self.foundation_id = account_id;
+    }
+
+    #[payable]
+    pub fn provide_storage_for_commissions(&mut self) {
+        let prev_storage = env::storage_usage();
+        for token_id in &self.token_list {
+            if self.commissions.get(token_id).is_none() {
+                self.commissions.insert(
+                    token_id,
+                    &Commission {
+                        claimed: U128(0),
+                        total: U128(0),
+                    },
+                );
+            }
+        }
+
+        let storage_cost = env::storage_usage()
+            .checked_sub(prev_storage)
+            .unwrap_or_default() as Balance
+            * env::storage_byte_cost();
+
+        let refund = env::attached_deposit().checked_sub(storage_cost).expect(
+            format!(
+                "ERR_STORAGE_DEPOSIT need {}, attatched {}",
+                storage_cost,
+                env::attached_deposit()
+            )
+            .as_str(),
+        );
+        if refund > 0 {
+            Promise::new(env::predecessor_account_id()).transfer(refund);
+        }
     }
 
     #[payable]
@@ -330,14 +375,16 @@ impl Contract {
         let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.internal_borrow(
+            let (_, token_id, amount_for_foundation) = pool.internal_borrow(
                 &account_id,
                 &borrow_amount.0,
                 &lend_token_info,
                 &lend_token_price,
                 &collateral_token_info,
                 &collateral_token_price,
+                self.foundation_commission,
             );
+            self.deposit_foundation(&token_id, &amount_for_foundation)
         }
 
         self.add_to_borrow_pools_list(&account_id, pool_id.clone());
@@ -446,7 +493,7 @@ impl Contract {
         let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.internal_withdraw_from_account(
+            let (token_id, amount_for_foundation) = pool.internal_withdraw_from_account(
                 &account_id,
                 &token_id,
                 amount.0,
@@ -454,7 +501,9 @@ impl Contract {
                 &lend_token_price,
                 &collateral_token_info,
                 &collateral_token_price,
+                self.foundation_commission,
             );
+            self.deposit_foundation(&token_id, &amount_for_foundation);
         }
 
         self.internal_send_tokens(pool_id, &token_id, &account_id, amount.0)
@@ -469,7 +518,8 @@ impl Contract {
         self.abort_if_pool_id_valid(pool_id.clone() as usize);
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.internal_pay_loan(&account_id, amount.0);
+            let (token_id, amount_for_foundation) = pool.internal_pay_loan(&account_id, amount.0, self.foundation_commission);
+            self.deposit_foundation(&token_id, &amount_for_foundation);
         }
     }
 
@@ -494,20 +544,31 @@ impl Contract {
         let withdrawn_amount: Balance;
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.internal_pay_borrowing_and_interest(&account_id);
-
-            withdrawn_amount = pool.internal_withdraw_all_from_account(
+            let (token_id, amount_for_foundation) = pool.internal_pay_borrowing_and_interest(&account_id, self.foundation_commission);
+            self.deposit_foundation(&token_id, &amount_for_foundation);
+        }
+        {
+            let pool = &mut self.pools[pool_id as usize];
+            let (w, token_id, amount_for_foundation) = pool.internal_withdraw_all_from_account(
                 &account_id,
                 &lend_token_info.token_id,
                 &lend_token_info,
                 &lend_token_price,
                 &collateral_token_info,
                 &collateral_token_price,
+                self.foundation_commission
             );
+            withdrawn_amount = w;
+            self.deposit_foundation(&token_id, &amount_for_foundation);
         }
 
         if withdrawn_amount > 0 {
-            self.internal_send_tokens(pool_id, &lend_token_info.token_id, &account_id, withdrawn_amount)
+            self.internal_send_tokens(
+                pool_id,
+                &lend_token_info.token_id,
+                &account_id,
+                withdrawn_amount,
+            )
         } else {
             Promise::new(account_id)
         }
@@ -534,18 +595,26 @@ impl Contract {
         {
             let pool = &mut self.pools[pool_id as usize];
             //users must pay all interest before being able to withdraw all collateral
-            withdrawn_amount = pool.internal_withdraw_all_from_account(
+            let (w, token_id, amount_for_foundation) = pool.internal_withdraw_all_from_account(
                 &account_id,
                 &collateral_token_info.token_id,
                 &lend_token_info,
                 &lend_token_price,
                 &collateral_token_info,
                 &collateral_token_price,
+                self.foundation_commission
             );
+            withdrawn_amount = w;
+            self.deposit_foundation(&token_id, &amount_for_foundation);
         }
 
         if withdrawn_amount > 0 {
-            self.internal_send_tokens(pool_id, &collateral_token_info.token_id, &account_id, withdrawn_amount)
+            self.internal_send_tokens(
+                pool_id,
+                &collateral_token_info.token_id,
+                &account_id,
+                withdrawn_amount,
+            )
         } else {
             Promise::new(account_id)
         }
@@ -575,7 +644,7 @@ impl Contract {
         let collateral_token_price = self.price_data.price(&pool.collateral_token_id.clone());
         {
             let pool = &mut self.pools[pool_id as usize];
-            pool.internal_liquidate(
+            let ret = pool.internal_liquidate(
                 liquidated_account_id.clone(),
                 liquidated_borrow_amount.0,
                 liquidator_account_id.clone(),
@@ -583,9 +652,13 @@ impl Contract {
                 &lend_token_price,
                 &collateral_token_info,
                 &collateral_token_price,
-                self.foundation_id.clone(),
                 self.liquidation_marginal,
+                self.foundation_commission
             );
+
+            for token_id in ret.keys() {
+                self.deposit_foundation(token_id, ret.get(token_id).unwrap_or(&0u128));
+            }
         }
 
         self.verify_storage(
@@ -610,8 +683,32 @@ impl Contract {
     #[init(ignore_state)]
     #[private]
     pub fn migrate() -> Self {
-        let contract: Self = env::state_read().expect("Contract is not initialized");
-        contract
+        let this: Contract = env::state_read().expect("Contract is not initialized");
+        // Contract {
+        //     governance: old_data.governance.clone(),
+        //     black_list: old_data.black_list,
+        //     status: old_data.status,
+        //     supported_tokens: old_data.supported_tokens,
+        //     price_data: old_data.price_data,
+        //     price_feeder: old_data.price_feeder,
+        //     token_list: old_data.token_list,
+        //     foundation_id: old_data.foundation_id,
+        //     pool_creation_fee: old_data.pool_creation_fee, //10 near to avoid spam
+        //     pools: old_data.pools,
+        //     token_to_list_lend_pools: old_data.token_to_list_lend_pools,
+        //     token_to_list_collateral_pools: old_data.token_to_list_collateral_pools,
+        //     created_pools: old_data.created_pools,
+        //     deposited_pools: old_data.deposited_pools,
+        //     borrow_pools: old_data.borrow_pools,
+        //     storage_accounts: old_data.storage_accounts,
+        //     storage_usage_add_pool: old_data.storage_usage_add_pool,
+        //     storage_usage_join_pool: old_data.storage_usage_join_pool,
+        //     account_list: old_data.account_list,
+        //     liquidation_marginal: old_data.liquidation_marginal,
+        //     foundation_commission: 1000,
+        //     commissions: UnorderedMap::new(StorageKey::Commissions)
+        // }
+        this
     }
 
     fn abort_if_pause(&self) {
@@ -640,6 +737,14 @@ impl Contract {
 }
 
 impl Contract {
+    fn deposit_foundation(&mut self, token_id: &AssetId, amount: &Balance) {
+        let mut current = self.commissions.get(token_id).unwrap_or(Commission {
+            claimed: U128(0),
+            total: U128(0)
+        });
+        current.total = U128(amount.clone() + current.total.0);
+        self.commissions.insert(token_id, &current);
+    }
     pub fn internal_pay_loan(
         &mut self,
         pool_id: u32,
@@ -661,7 +766,8 @@ impl Contract {
         );
 
         let pool = &mut self.pools[pool_id as usize];
-        pool.internal_pay_loan(account_id, pay_amount.0);
+        let (token_id, amount_for_foundation) = pool.internal_pay_loan(account_id, pay_amount.0, self.foundation_commission);
+        self.deposit_foundation(&token_id, &amount_for_foundation);
     }
 
     pub fn internal_deposit(
@@ -676,7 +782,8 @@ impl Contract {
         let prev_storage = env::storage_usage();
         let pool = &mut self.pools[pool_id.clone() as usize];
         pool.internal_register_account_if_not(account_id);
-        pool.internal_deposit(account_id, token_id, amount.clone());
+        let (token_id, amount_for_foundation) = pool.internal_deposit(account_id, token_id, amount.clone(), self.foundation_commission);
+        self.deposit_foundation(&token_id, &amount_for_foundation);
         self.add_to_deposit_pools_list(account_id, pool_id);
         self.verify_storage(account_id, prev_storage, None);
     }

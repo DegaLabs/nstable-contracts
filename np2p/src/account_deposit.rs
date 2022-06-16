@@ -83,25 +83,28 @@ impl AccountDeposit {
         interest
     }
 
-    pub fn update_account(&mut self, interest_rate: u64, acc_interest_per_share: &Balance) {
+    pub fn update_account(&mut self, interest_rate: u64, acc_interest_per_share: &Balance, foundation_commission: u64) -> Balance {
         log!("updating account {}", self.owner_id);
-        self.update_lending_profit(interest_rate, acc_interest_per_share);
+        let commission = self.update_lending_profit(interest_rate, acc_interest_per_share, foundation_commission);
         self.update_borrowing_interest(interest_rate);
         log!("updating account {} done", self.owner_id);
+        commission
     }
 
-    fn update_lending_profit(&mut self, _interest_rate: u64, acc_interest_per_share: &Balance) {
+    fn update_lending_profit(&mut self, _interest_rate: u64, acc_interest_per_share: &Balance, foundation_commission: u64) -> Balance {
         let current_deposit = self.get_token_deposit(&self.lend_token_id);
         self.last_lending_interest_reward_update_timestamp_sec = env::block_timestamp_ms() / 1000;
         let total_interest_reward = (U256::from(current_deposit)
             * U256::from(acc_interest_per_share.clone())
             / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
         .as_u128();
+        let commission = self.get_commission(total_interest_reward - self.lending_interest_profit_debt, foundation_commission);
         self.unpaid_lending_interest_profit +=
-            total_interest_reward - self.lending_interest_profit_debt;
+            total_interest_reward - self.lending_interest_profit_debt - commission.clone();
         self.total_lending_interest_profit +=
-            total_interest_reward - self.lending_interest_profit_debt;
+            total_interest_reward - self.lending_interest_profit_debt - commission.clone();
         self.lending_interest_profit_debt = total_interest_reward;
+        commission
     }
 
     pub fn update_lending_interest_profit_debt(&mut self, acc_interest_per_share: &Balance) {
@@ -288,20 +291,6 @@ impl AccountDeposit {
         }
     }
 
-    pub fn compute_unrecorded_interest(&self, interest_rate: u64) -> Balance {
-        if self.borrow_amount == 0 {
-            return 0u128;
-        }
-        let last_borrowing_interest_update_timestamp_sec =
-            self.last_borrowing_interest_update_timestamp_sec.clone();
-        let current_time_sec = get_next_interest_recal_time_sec();
-        let interest = self.borrow_amount
-            * (((current_time_sec - last_borrowing_interest_update_timestamp_sec) * interest_rate)
-                as u128)
-            / (INTEREST_RATE_DIVISOR * SECONDS_PER_YEAR);
-        interest
-    }
-
     //this does not take care of interest when user in a borrowing position
     // pub fn internal_deposit_lend_token_with_taking_interest(
     //     &mut self,
@@ -443,6 +432,7 @@ impl AccountDeposit {
     pub fn get_pending_unpaid_lending_interest_profit(
         &self,
         acc_interest_per_share: &Balance,
+        foundation_commission: u64
     ) -> Balance {
         let current_deposit = self.get_token_deposit(&self.lend_token_id);
 
@@ -450,9 +440,10 @@ impl AccountDeposit {
             * U256::from(acc_interest_per_share.clone())
             / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
         .as_u128();
+        let commission = self.get_commission(total_interest_reward.clone() - self.lending_interest_profit_debt, foundation_commission.clone());
         let unpaid_lending_interest_profit = self.unpaid_lending_interest_profit
             + total_interest_reward
-            - self.lending_interest_profit_debt;
+            - self.lending_interest_profit_debt - commission;
         return unpaid_lending_interest_profit;
     }
 
@@ -463,7 +454,11 @@ impl AccountDeposit {
             * U256::from(acc_interest_per_share.clone())
             / U256::from(ACC_INTEREST_PER_SHARE_MULTIPLIER))
         .as_u128();
-        total_interest_reward
+        self.total_lending_interest_profit + total_interest_reward - self.lending_interest_profit_debt
+    }
+
+    pub fn get_commission(&self, total: Balance, foundation_commission: u64) -> Balance {
+        (total.clone() - self.lending_interest_profit_debt) * (foundation_commission as u128) / FOUNDATION_COMMISSION_DIVISOR
     }
 
     pub fn get_pending_total_lending_interest_profit(
@@ -490,5 +485,19 @@ impl AccountDeposit {
     pub fn get_pending_total_borrowing_interest(&self, interest_rate: u64) -> Balance {
         let unrecorded = self.compute_unrecorded_interest(interest_rate);
         self.total_borrowing_interest + unrecorded
+    }
+
+    pub fn compute_unrecorded_interest(&self, interest_rate: u64) -> Balance {
+        if self.borrow_amount == 0 {
+            return 0u128;
+        }
+        let last_borrowing_interest_update_timestamp_sec =
+            self.last_borrowing_interest_update_timestamp_sec.clone();
+        let current_time_sec = get_next_interest_recal_time_sec();
+        let interest = self.borrow_amount
+            * (((current_time_sec - last_borrowing_interest_update_timestamp_sec) * interest_rate)
+                as u128)
+            / (INTEREST_RATE_DIVISOR * SECONDS_PER_YEAR);
+        interest
     }
 }

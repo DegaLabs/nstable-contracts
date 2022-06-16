@@ -174,7 +174,7 @@ impl Contract {
             //lending interest when account is a lender
             lending_interest_profit_debt: U128(account_deposit.lending_interest_profit_debt), //interest debt when in a lending position, this is similar to rewardDebt in sushi farming
             unpaid_lending_interest_profit: U128(
-                pool.get_pending_unpaid_lending_interest_profit(&account_id),
+                pool.get_pending_unpaid_lending_interest_profit(&account_id, self.foundation_commission),
             ),
             total_lending_interest_profit: U128(
                 pool.get_pending_total_lending_interest_profit(&account_id),

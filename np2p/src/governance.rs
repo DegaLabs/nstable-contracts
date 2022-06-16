@@ -20,6 +20,12 @@ impl Contract {
         self.liquidation_marginal = liquidation_marginal;
     }
 
+    pub fn set_foundation_commission(&mut self, commission: u64) {
+        self.assert_governance();
+        require!((commission as u128) < FOUNDATION_COMMISSION_DIVISOR, "too high");
+        self.foundation_commission = commission;
+    }
+
     pub fn set_governance(&mut self, governance: AccountId) {
         self.assert_governance();
         self.governance = governance;
