@@ -12,8 +12,12 @@ use near_sdk::json_types::{U128, U64};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::{
     assert_one_yocto, env, log, near_bindgen, require, AccountId, Balance, BorshStorageKey, Gas,
-    PanicOnDefault, Promise, StorageUsage,
+    PanicOnDefault, Promise, StorageUsage, ext_contract
+
 };
+
+const GAS_FOR_RESOLVE_TRANSFER: Gas = Gas(10_000_000_000_000);
+const GAS_FOR_FT_TRANSFER_CALL: Gas = Gas(25_000_000_000_000 + GAS_FOR_RESOLVE_TRANSFER.0);
 
 use near_sdk::PromiseOrValue;
 
@@ -25,6 +29,26 @@ use near_contract_standards::fungible_token::{events::FtBurn, events::FtMint, Fu
 use oracle::{ExchangeRate, Price, PriceData};
 use std::fmt::Debug;
 use views::U256;
+
+#[ext_contract(ext_ft_receiver)]
+pub trait FungibleTokenReceiver {
+    fn ft_on_transfer(
+        &mut self,
+        sender_id: AccountId,
+        amount: U128,
+        msg: String,
+    ) -> PromiseOrValue<U128>;
+}
+
+#[ext_contract(ext_ft_resolver)]
+pub trait FungibleTokenResolverCore {
+    fn ft_resolve_transfer(
+        &mut self,
+        sender_id: AccountId,
+        receiver_id: AccountId,
+        amount: U128,
+    ) -> U128;
+}
 
 const BORROW_FEE_DIVISOR: u128 = 10000;
 const COLLATERAL_RATIO_DIVISOR: u128 = 10000;
@@ -255,7 +279,7 @@ pub struct Contract {
     foundation_id: AccountId,
     borrow_fee: u128,
     liquidation_history: Vec<Liquidation>,
-    account_list: Vec<AccountId>
+    account_list: Vec<AccountId>,
 }
 
 near_contract_standards::impl_fungible_token_core!(Contract, token, on_tokens_burned);
@@ -308,7 +332,7 @@ impl Contract {
             foundation_id: foundation.clone(),
             borrow_fee: 20,
             liquidation_history: vec![],
-            account_list: vec![]
+            account_list: vec![],
         };
 
         this.token.internal_register_account(&governance);
@@ -475,8 +499,9 @@ impl Contract {
         FtBurn {
             owner_id: account_id,
             amount: &U128(burn),
-            memo: Some("PayLoan")
-        }.emit();
+            memo: Some("PayLoan"),
+        }
+        .emit();
 
         U128(burn)
     }
@@ -714,8 +739,9 @@ impl Contract {
         FtBurn {
             owner_id: &maker_id,
             amount: &nai_amount,
-            memo: Some("Liquidate")
-        }.emit();
+            memo: Some("Liquidate"),
+        }
+        .emit();
 
         //compute liquidated collateral amount to cover NAI burnt by maker
         let liquidate_collateral_to_cover_nai_burnt = liquidate_value
@@ -830,6 +856,30 @@ impl Contract {
         if self.blacklist_status(&account_id) != BlackListStatus::Allowable {
             env::panic_str(&format!("Account '{}' is banned", account_id));
         }
+    }
+
+    #[payable]
+    fn ft_transfer_call(
+        &mut self,
+        receiver_id: AccountId,
+        amount: U128,
+        memo: Option<String>,
+        msg: String,
+    ) -> PromiseOrValue<U128> {
+        assert_one_yocto();
+        require!(
+            env::prepaid_gas() > GAS_FOR_FT_TRANSFER_CALL,
+            "More gas is required"
+        );
+        let sender_id = env::predecessor_account_id();
+        let amount: Balance = amount.into();
+        self.token.internal_transfer(&sender_id, &receiver_id, amount, memo);
+        // Initiating receiver's call and the callback
+        ext_ft_receiver::ft_on_transfer(sender_id.clone(), amount.into(), msg, receiver_id.clone(), 0, GAS_FOR_FT_TRANSFER_CALL)
+            .then(
+                ext_ft_resolver::ft_resolve_transfer(sender_id, receiver_id, amount.into(), env::current_account_id(), 0, GAS_FOR_RESOLVE_TRANSFER),
+            )
+            .into()
     }
 }
 
