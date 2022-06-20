@@ -71,6 +71,24 @@ impl Contract {
         acc
     }
 
+    pub fn get_total_collateral_value_of_account(&self, account_id: AccountId) -> U128 {
+        let deposit_account = self.get_account_info(account_id.clone());
+        let mut ret = 0u128;
+        for vault in &deposit_account.vaults {
+            if vault.deposited.0 == 0 {
+                continue;
+            }
+            let token_info = self.get_token_info(vault.token_id.clone());
+            let price = self.price_data.price(&vault.token_id);
+            if price.multiplier.0 == 0 {
+                continue;
+            }
+            let collateral_value = self.compute_collateral_value_usd(&vault.deposited.0, &price, token_info.decimals);
+            ret += collateral_value;
+        }
+        ret.into()
+    }
+
     pub fn get_account_vault(
         &self,
         account_id: AccountId,
