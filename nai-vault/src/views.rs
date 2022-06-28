@@ -22,6 +22,7 @@ pub struct BorrowInfo {
     collateral_value: U128,
     liquidation_price: Price,
     max_borrowable: U128,
+    max_withdrawable: U128,
     liquidation_fee: u64,
     dust_limit: U128
 }
@@ -179,6 +180,7 @@ impl Contract {
                     vault.token_id.clone(),
                     U128(0),
                 ),
+                max_withdrawable: self.compute_max_withdrawal(account_id.clone(), vault.token_id.clone()),
                 liquidation_fee: token_info.liquidation_price_fee,
                 dust_limit: self.get_min_borrow()
             };
@@ -237,6 +239,7 @@ impl Contract {
                 vault.token_id.clone(),
                 collateral_amount,
             ),
+            max_withdrawable: self.compute_max_withdrawal(account_id.clone(), vault.token_id.clone()),
             liquidation_fee: token_info.liquidation_price_fee,
             dust_limit: self.get_min_borrow()
         };
